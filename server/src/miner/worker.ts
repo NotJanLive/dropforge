@@ -300,7 +300,10 @@ export class MinerWorker {
 
     await this.rebuildChannelsFromMining();
     await this.maintainWatching();
-    if (this.miningCampaigns.length === 0 && !this.watching) {
+    if (!this.watching && this.miningCampaigns.length > 0) {
+      // Channels may come online later — stay idle until maintainWatching finds one
+      this.enterIdleState(true);
+    } else if (this.miningCampaigns.length === 0) {
       this.enterIdleState(true);
     }
     this.emit();
@@ -954,7 +957,11 @@ export class MinerWorker {
   private watchingAllowedByDropLists(): boolean {
     if (!this.watching) return false;
 
+    if (this.miningCampaigns.length === 0) return false;
+
     const gameName = (this.watching.gameName ?? "").toLowerCase();
+    const gameSlug = (this.watching.gameSlug ?? "").toLowerCase();
+
     if (
       gameName &&
       this.settings.excludeGames.some((g) => g.toLowerCase() === gameName)
@@ -972,7 +979,9 @@ export class MinerWorker {
       }
     }
 
-    if (this.miningCampaigns.length === 0) return false;
+    // Stream category not resolved yet — don't force-stop while metadata loads
+    if (!gameName && !gameSlug) return true;
+
     return channelMatchesCampaigns(this.watching, this.miningCampaigns);
   }
 
@@ -1311,16 +1320,29 @@ export class MinerWorker {
 
   private async performWatch() {
     if (!this.running) return;
-    if (this.miningCampaigns.length === 0 || (this.watching && !this.watchingAllowedByDropLists())) {
+
+    if (this.miningCampaigns.length === 0) {
       if (this.watching) {
-        this.clearWatchSession("Drop lists changed — stopping watch");
+        this.clearWatchSession("No eligible campaigns — stopping watch");
       }
       this.enterIdleState(true);
       this.emit();
       return;
     }
+
+    if (this.watching && !this.watchingAllowedByDropLists()) {
+      this.clearWatchSession("Drop lists changed — switching to next campaign");
+      await this.maintainWatching();
+      return;
+    }
+
     const login = this.watching?.login;
-    if (!login || !this.broadcastId) return;
+    if (!login || !this.broadcastId) {
+      if (this.miningCampaigns.length > 0) {
+        await this.maintainWatching();
+      }
+      return;
+    }
 
     if (!this.watching!.id || !/^\d+$/.test(this.watching!.id)) {
       const info = await fetchStreamInfo(this.auth, login);
