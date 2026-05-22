@@ -465,7 +465,41 @@ export class MinerWorker {
         this.lastWatchAt = new Date().toISOString();
         this.lastWatchMinutes = parsed.currentMinutes;
       }
+      const required =
+        parsed.requiredMinutes ||
+        findDropInCampaigns(this.allCampaigns, parsed.dropId)?.drop.requiredMinutes ||
+        this.currentDrop?.requiredMinutes ||
+        0;
+      if (required > 0 && parsed.currentMinutes >= required) {
+        void this.onDropWatchComplete(parsed.dropId, parsed.dropInstanceId);
+      }
       this.emit();
+    }
+  }
+
+  /** Watch time finished — claim immediately and refresh inventory if needed (TDM drop-claim + GAMES_UPDATE). */
+  private async onDropWatchComplete(dropId: string, dropInstanceId?: string) {
+    if (!this.running) return;
+    await this.syncDropProgress();
+    const found = findDropInCampaigns(this.allCampaigns, dropId);
+    if (found?.drop.isClaimed) {
+      await this.afterDropClaimed(dropId, found.campaign);
+      return;
+    }
+    await this.tryClaimDrop(dropId, dropInstanceId);
+    const after = findDropInCampaigns(this.allCampaigns, dropId);
+    if (after && !after.drop.isClaimed && dropCanClaim(after.drop, after.campaign)) {
+      this.forceInventoryRefresh = true;
+    }
+  }
+
+  private claimWatchCompletedDrops() {
+    if (this.claiming || this.inventoryRefreshing) return;
+    const dropId = this.currentDrop?.dropId;
+    if (!dropId) return;
+    const found = findDropInCampaigns(this.allCampaigns, dropId);
+    if (found && dropCanClaim(found.drop, found.campaign) && !found.drop.isClaimed) {
+      void this.onDropWatchComplete(dropId, found.drop.claimId);
     }
   }
 
@@ -701,6 +735,7 @@ export class MinerWorker {
       this.lastChannelRefresh = now;
     }
 
+    await this.claimWatchCompletedDrops();
     await this.maintainWatching();
   }
 
@@ -1056,6 +1091,7 @@ export class MinerWorker {
         this.emit();
       } else {
         this.addLog("warn", `Claim attempt failed: ${drop.name}`);
+        this.forceInventoryRefresh = true;
       }
     } finally {
       this.claiming = false;
@@ -1287,6 +1323,12 @@ export class MinerWorker {
         this.lastWatchAt = new Date().toISOString();
         this.lastWatchMinutes = newMinutes >= 0 ? newMinutes : null;
       } else if (newMinutes === prevMinutes && prevMinutes >= 0) {
+        const req = this.currentDrop?.requiredMinutes ?? 0;
+        if (req > 0 && newMinutes >= req && this.currentDrop?.dropId) {
+          void this.onDropWatchComplete(this.currentDrop.dropId);
+          this.emit();
+          return;
+        }
         const inGrace = Date.now() < this.watchGraceUntil;
         if (spade.ok && inGrace) {
           this.emit();

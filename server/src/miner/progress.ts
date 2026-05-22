@@ -167,6 +167,7 @@ export function applySequentialDropProgress(
   }
   if (active.requiredMinutes > 0 && active.currentMinutes >= active.requiredMinutes) {
     active.isComplete = true;
+    active.canClaim = true;
   }
 
   return idx;
