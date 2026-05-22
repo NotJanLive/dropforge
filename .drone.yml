@@ -1,0 +1,62 @@
+kind: pipeline
+type: docker
+name: default
+
+steps:
+  - name: Build
+    image: node:20
+    commands:
+      - npm install
+      - npm run build
+      - mkdir -p deploy/client/dist deploy/server/dist
+      - cp -rv client/dist/. deploy/client/dist/
+      - cp -rv server/dist/. deploy/server/dist/
+      - cp package.json package-lock.json deploy/
+      - cp client/package.json deploy/client/
+      - cp server/package.json deploy/server/
+      - cd deploy && npm install --omit=dev
+
+  - name: Upload
+    image: appleboy/drone-scp
+    settings:
+      host:
+        from_secret: address
+      username: root
+      password:
+        from_secret: ssh_password
+      source: deploy/
+      target: /var/lib/docker/volumes/dropforge/_data
+      strip_components: 1
+
+  - name: Deploy
+    image: appleboy/drone-ssh
+    environment:
+      SESSION_SECRET:
+        from_secret: session_secret
+      ENCRYPTION_KEY:
+        from_secret: encryption_key
+    settings:
+      host:
+        from_secret: address
+      username: root
+      password:
+        from_secret: ssh_password
+      envs:
+        - SESSION_SECRET
+        - ENCRYPTION_KEY
+      script:
+        - docker stop dropforge || true
+        - docker rm dropforge || true
+        - |
+          docker run -d \
+            --name dropforge \
+            --restart always \
+            -p 4700:4700 \
+            -v dropforge:/app \
+            -e PORT=4700 \
+            -e NODE_ENV=production \
+            -e SESSION_SECRET="$SESSION_SECRET" \
+            -e ENCRYPTION_KEY="$ENCRYPTION_KEY" \
+            -e TWITCH_CLIENT_TYPE=ANDROID_APP \
+            -w /app \
+            node:20-alpine node server/dist/index.js
