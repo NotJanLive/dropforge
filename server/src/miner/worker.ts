@@ -268,9 +268,18 @@ export class MinerWorker {
 
     const prevFocusedId = this.resolveFocusedCampaign()?.id ?? null;
     this.refilterMiningCampaigns();
+    this.enforceDropListOnWatch();
 
     if (this.allCampaigns.length === 0) {
       this.addLog("info", "Drop lists saved — use Reload miner to fetch campaigns from Twitch");
+      this.emit();
+      return;
+    }
+
+    if (this.miningCampaigns.length === 0) {
+      this.channels = [];
+      this.clearWatchSession("Drop lists updated — no campaigns to mine");
+      this.enterIdleState(true);
       this.emit();
       return;
     }
@@ -282,11 +291,9 @@ export class MinerWorker {
     );
 
     const nextFocusedId = this.resolveFocusedCampaign()?.id ?? null;
-    if (prevFocusedId === nextFocusedId && this.channels.length > 0) {
+    const focusChanged = prevFocusedId !== nextFocusedId;
+    if (!focusChanged && this.channels.length > 0 && this.watching && this.watchingAllowedByDropLists()) {
       await this.maintainWatching();
-      if (this.miningCampaigns.length === 0 && !this.watching) {
-        this.enterIdleState();
-      }
       this.emit();
       return;
     }
@@ -294,7 +301,7 @@ export class MinerWorker {
     await this.rebuildChannelsFromMining();
     await this.maintainWatching();
     if (this.miningCampaigns.length === 0 && !this.watching) {
-      this.enterIdleState();
+      this.enterIdleState(true);
     }
     this.emit();
   }
@@ -936,11 +943,61 @@ export class MinerWorker {
     }
   }
 
+  private clearWatchSession(logMessage?: string) {
+    if (logMessage) this.addLog("info", logMessage);
+    this.watching = null;
+    this.broadcastId = null;
+    this.currentDrop = null;
+  }
+
+  /** Whether the current channel still matches priority / ignore lists and mining campaigns. */
+  private watchingAllowedByDropLists(): boolean {
+    if (!this.watching) return false;
+
+    const gameName = (this.watching.gameName ?? "").toLowerCase();
+    if (
+      gameName &&
+      this.settings.excludeGames.some((g) => g.toLowerCase() === gameName)
+    ) {
+      return false;
+    }
+
+    if (this.settings.priorityMode === "PRIORITY_ONLY") {
+      if (this.settings.priorityGames.length === 0) return false;
+      if (
+        gameName &&
+        !this.settings.priorityGames.some((g) => g.toLowerCase() === gameName)
+      ) {
+        return false;
+      }
+    }
+
+    if (this.miningCampaigns.length === 0) return false;
+    return channelMatchesCampaigns(this.watching, this.miningCampaigns);
+  }
+
+  private enforceDropListOnWatch() {
+    if (!this.watching) return;
+    if (this.watchingAllowedByDropLists()) return;
+    const label = this.watching.gameName || this.watching.login;
+    this.clearWatchSession(`Stopped watching ${label} — no longer allowed by drop lists`);
+  }
+
   private async maintainWatching() {
     if (this.switching) return;
 
     const focusedCampaigns = this.getFocusedCampaigns();
     const manual = this.settings.manualChannelLogin;
+
+    if (this.miningCampaigns.length === 0) {
+      if (this.watching) {
+        this.clearWatchSession("No eligible campaigns — stopping watch");
+      }
+      this.enterIdleState(true);
+      return;
+    }
+
+    this.enforceDropListOnWatch();
 
     if (manual) {
       const manualChannel = this.getDisplayChannels().find((c) => sameLogin(c.login, manual));
@@ -993,6 +1050,8 @@ export class MinerWorker {
         this.addLog("warn", `${this.watching.login} has no drops — searching for another channel`);
         this.broadcastId = null;
         this.watching = null;
+      } else if (focusedCampaigns.length === 0) {
+        this.clearWatchSession("No focused campaign — stopping watch");
       } else {
         this.setWatchingState(this.watching.login);
         this.emit();
@@ -1252,6 +1311,14 @@ export class MinerWorker {
 
   private async performWatch() {
     if (!this.running) return;
+    if (this.miningCampaigns.length === 0 || (this.watching && !this.watchingAllowedByDropLists())) {
+      if (this.watching) {
+        this.clearWatchSession("Drop lists changed — stopping watch");
+      }
+      this.enterIdleState(true);
+      this.emit();
+      return;
+    }
     const login = this.watching?.login;
     if (!login || !this.broadcastId) return;
 

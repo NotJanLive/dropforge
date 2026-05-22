@@ -638,7 +638,7 @@ export function resolveClaimId(
 }
 
 export function channelMatchesCampaigns(ch: ChannelInfo, campaigns: CampaignInfo[]): boolean {
-  if (campaigns.length === 0) return true;
+  if (campaigns.length === 0) return false;
   const names = new Set(campaigns.map((c) => c.gameName.toLowerCase()).filter(Boolean));
   const slugs = new Set(campaigns.map((c) => c.gameSlug.toLowerCase()).filter(Boolean));
   const gn = ch.gameName.toLowerCase();

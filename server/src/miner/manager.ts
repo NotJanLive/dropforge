@@ -156,7 +156,13 @@ export class MinerManager {
     await this.ensureRunning(userId);
     const worker = this.workers.get(userId);
     if (worker) {
-      worker.updateSettings(settings);
+      worker.updateSettings({
+        priorityMode: merged.priorityMode,
+        priorityGames: merged.priorityGames,
+        excludeGames: merged.excludeGames,
+        manualChannelLogin: merged.manualChannelLogin,
+        activeCampaignId: merged.activeCampaignId,
+      });
       if (rulesChanged) {
         await worker.applyMiningRules();
       } else if (focusChanged) {
