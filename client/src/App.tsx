@@ -54,7 +54,18 @@ export default function App() {
           )
         }
       />
-      <Route path="/login" element={user ? <Navigate to="/dashboard" replace /> : <LoginPage />} />
+      <Route
+        path="/login"
+        element={
+          !status?.initialized ? (
+            <Navigate to="/setup/admin" replace />
+          ) : user ? (
+            <Navigate to="/dashboard" replace />
+          ) : (
+            <LoginPage />
+          )
+        }
+      />
       <Route
         path="/setup/admin"
         element={

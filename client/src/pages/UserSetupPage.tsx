@@ -1,12 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { X } from "lucide-react";
 import { StepWizard } from "@/components/StepWizard";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { DropListsEditor } from "@/components/DropListsEditor";
 import { api } from "@/lib/api";
-import { buildGameOptions } from "@/lib/campaignGames";
+import { buildGameOptions, gamesAvailableForAdd } from "@/lib/campaignGames";
 import { useAuth } from "@/context/AuthContext";
 
 type CampaignItem = {
@@ -31,7 +31,7 @@ export function UserSetupPage() {
   const [deviceId, setDeviceId] = useState("");
   const [campaigns, setCampaigns] = useState<CampaignItem[]>([]);
   const [priorityGames, setPriorityGames] = useState<string[]>([]);
-  const [excludeGames, setExcludeGames] = useState<string[]>([]);
+  const [pickGame, setPickGame] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [pollStatus, setPollStatus] = useState("");
@@ -43,27 +43,18 @@ export function UserSetupPage() {
   useEffect(() => {
     if (step !== 2) return;
     setLoading(true);
+    setError("");
     api
-      .minerReload()
+      .campaigns({ refresh: true })
       .then((data) => {
-        const campaigns = (data.status?.campaigns ?? []).map((c) => ({
-          id: c.id,
-          name: c.name,
-          gameName: c.gameName,
-          gameImageUrl: c.gameImageUrl,
-          status: c.status,
-          linked: c.linked,
-          endsAt: c.endsAt,
-          dropCount: c.drops.length,
-        }));
-        setCampaigns(campaigns);
+        setCampaigns(data.campaigns);
         setStep(3);
       })
       .catch((err) => setError(err instanceof Error ? err.message : "Failed to load campaigns"))
       .finally(() => setLoading(false));
   }, [step]);
 
-  const activeGames = useMemo(
+  const availableGames = useMemo(
     () =>
       buildGameOptions(
         campaigns.map((c) => ({
@@ -71,11 +62,22 @@ export function UserSetupPage() {
           gameImageUrl: c.gameImageUrl,
           status: c.status,
           linked: c.linked,
-        })),
-        { activeOnly: true }
+        }))
       ),
     [campaigns]
   );
+
+  const addableGames = useMemo(
+    () => gamesAvailableForAdd(availableGames, priorityGames, []),
+    [availableGames, priorityGames]
+  );
+
+  const addPriorityGame = () => {
+    const name = pickGame.trim();
+    if (!name || priorityGames.includes(name)) return;
+    setPriorityGames([...priorityGames, name]);
+    setPickGame("");
+  };
 
   const next = async () => {
     setError("");
@@ -112,7 +114,7 @@ export function UserSetupPage() {
       } else {
         await api.updateMinerSettings({
           priorityGames,
-          excludeGames,
+          excludeGames: [],
           priorityMode: "PRIORITY_ONLY",
         });
         await api.finishUserSetup();
@@ -130,13 +132,13 @@ export function UserSetupPage() {
     ? ([
         ["Link Twitch", "Authorize Dropforge using Twitch device login."],
         ["Loading games", "Fetching active drop campaigns from your Twitch account."],
-        ["Priority games", "Pick games to mine — top of the list is mined first."],
+        ["Priority games", "Optional — pick games to mine first. You can change this later under Drop lists."],
       ] as const)
     : ([
         ["Set your password", "Replace the temporary password from your admin."],
         ["Link Twitch", "Authorize Dropforge using Twitch device login."],
         ["Loading games", "Fetching active drop campaigns from your Twitch account."],
-        ["Priority games", "Pick games to mine — top of the list is mined first."],
+        ["Priority games", "Optional — pick games to mine first. You can change this later under Drop lists."],
       ] as const);
 
   const title = titles[wizardStep] ?? titles[0];
@@ -192,24 +194,69 @@ export function UserSetupPage() {
 
       {step === 3 && (
         <div className="space-y-4">
-          <p className="text-xs text-muted-foreground">
-            {activeGames.length} active games with campaigns · {priorityGames.length} in priority list
+          <p className="text-sm text-muted-foreground">
+            {availableGames.length} game{availableGames.length === 1 ? "" : "s"} with drop campaigns
+            {priorityGames.length === 0
+              ? " — optional, add any below or finish without."
+              : ` · ${priorityGames.length} selected.`}
           </p>
-          <DropListsEditor
-            games={activeGames}
-            priorityGames={priorityGames}
-            excludeGames={excludeGames}
-            priorityMode="PRIORITY_ONLY"
-            onPriorityGamesChange={setPriorityGames}
-            onExcludeGamesChange={setExcludeGames}
-            onPriorityModeChange={() => undefined}
-            activeOnlyHint
-            hidePriorityMode
-          />
-          {priorityGames.length === 0 && (
-            <p className="text-xs text-amber-400/90">
-              You can finish without games — the miner stays idle until you add some under Drop lists.
+
+          {availableGames.length === 0 ? (
+            <p className="text-sm text-amber-400/90">
+              No campaigns found on Twitch right now. You can finish setup and add games later under Drop lists.
             </p>
+          ) : (
+            <>
+              <div className="space-y-2">
+                <Label htmlFor="setup-game">Game</Label>
+                <select
+                  id="setup-game"
+                  className="flex h-10 w-full rounded-lg border border-input bg-secondary/50 px-3 text-sm"
+                  value={pickGame}
+                  onChange={(e) => setPickGame(e.target.value)}
+                >
+                  <option value="">Select a game…</option>
+                  {addableGames.map((g) => (
+                    <option key={g.name} value={g.name}>
+                      {g.name} ({g.campaignCount} campaign{g.campaignCount === 1 ? "" : "s"})
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <Button
+                type="button"
+                variant="outline"
+                className="w-full"
+                disabled={!pickGame}
+                onClick={addPriorityGame}
+              >
+                Add game
+              </Button>
+            </>
+          )}
+
+          {priorityGames.length > 0 && (
+            <ul className="space-y-2 rounded-lg border border-border/60 p-2">
+              {priorityGames.map((game) => (
+                <li
+                  key={game}
+                  className="flex items-center gap-2 rounded-md bg-secondary/40 px-2 py-1.5 text-sm"
+                >
+                  <span className="flex-1 truncate">{game}</span>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="ghost"
+                    className="h-7 w-7 shrink-0 p-0"
+                    onClick={() => setPriorityGames(priorityGames.filter((g) => g !== game))}
+                    aria-label={`Remove ${game}`}
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </Button>
+                </li>
+              ))}
+            </ul>
           )}
         </div>
       )}

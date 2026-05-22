@@ -61,9 +61,12 @@ function generateTempPassword() {
   return randomBytes(6).toString("base64url");
 }
 
-router.get("/status", (_req, res) => {
+router.get("/status", (req, res) => {
   const config = getSiteConfig();
-  const user = getSessionUser(_req);
+  const user = getSessionUser(req);
+  if (req.session.userId && !user) {
+    req.session.userId = undefined;
+  }
   res.json({
     initialized: config?.initialized ?? false,
     adminSetupComplete: config?.adminSetupComplete ?? false,
