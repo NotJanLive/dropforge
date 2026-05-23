@@ -11,7 +11,7 @@ interface StepWizardProps {
 
 export function StepWizard({ title, description, step, totalSteps, children }: StepWizardProps) {
   return (
-    <div className="min-h-screen flex items-center justify-center p-6">
+    <div className="flex min-h-screen items-center justify-center overflow-y-auto p-4 sm:p-6">
       <motion.div
         initial={{ opacity: 0, y: 12 }}
         animate={{ opacity: 1, y: 0 }}

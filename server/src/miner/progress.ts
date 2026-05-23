@@ -11,6 +11,8 @@ export interface CampaignMetrics {
   remainingMinutes: number;
 }
 
+type CampaignDrop = CampaignInfo["drops"][number];
+
 function tdmRemainingSeconds(
   remainingMinutes: number,
   lastWatchAt: string | null | undefined,
@@ -48,63 +50,32 @@ export function watchRemainingSecondsFromMinutes(
   return tdmRemainingSeconds(remainingMinutes, lastWatchAt, nowMs);
 }
 
-/** Total watch minutes left across all drops (e.g. 293/360 cumulative → 67 min). */
-export function campaignRemainingMinutesTotal(
-  campaign: CampaignInfo,
-  activeDropId?: string
-): number {
-  const drops = campaign.drops;
-  if (drops.length === 0) return 0;
+/** Milestone campaigns (Overwatch etc.) share one watch counter across drops. */
+export function usesSharedWatchProgress(drops: CampaignDrop[]): boolean {
+  if (drops.some((d) => (d.preconditionDropIds?.length ?? 0) > 0)) return false;
 
-  const hasPreconditions = drops.some((d) => (d.preconditionDropIds?.length ?? 0) > 0);
-  if (hasPreconditions) {
-    let maxRemaining = 0;
-    for (const d of drops) {
-      if (!d.isClaimed) {
-        maxRemaining = Math.max(maxRemaining, dropTotalRemainingMinutes(campaign, d.id));
-      }
-    }
-    return maxRemaining;
-  }
-
-  if (isCumulativeDropChain(drops)) {
-    const unclaimedTimed = drops.filter((d) => !d.isClaimed && d.requiredMinutes > 0);
-    if (unclaimedTimed.length === 0) return 0;
-    const target = Math.max(...unclaimedTimed.map((d) => d.requiredMinutes));
-    const watched = watchedCumulativeMinutes(campaign, activeDropId);
-    return Math.max(0, target - watched);
-  }
-
-  return Math.max(
-    0,
-    drops.reduce((sum, d) => {
-      const req = Math.max(0, d.requiredMinutes);
-      if (req <= 0 || d.isClaimed) return sum;
-      return sum + Math.max(0, req - Math.min(d.currentMinutes, req));
-    }, 0)
-  );
-}
-
-function isCumulativeDropChain(drops: CampaignInfo["drops"]): boolean {
   const timed = drops.filter((d) => d.requiredMinutes > 0);
   if (timed.length <= 1) return true;
-  for (let i = 1; i < timed.length; i++) {
-    if (timed[i].requiredMinutes <= timed[i - 1].requiredMinutes) return false;
-  }
-  return true;
+
+  const activeCount = timed.filter((d) => d.currentMinutes > 0 && !d.isClaimed).length;
+  if (activeCount > 1) return false;
+
+  const thresholds = timed.map((d) => d.requiredMinutes).sort((a, b) => a - b);
+  return thresholds[thresholds.length - 1] > thresholds[0];
 }
 
-/** Cumulative watch position in sequential campaigns (Twitch reports this on the active drop). */
-function watchedCumulativeMinutes(campaign: CampaignInfo, activeDropId?: string): number {
+/** Cumulative watch position in milestone campaigns. */
+export function watchedCumulativeMinutes(campaign: CampaignInfo, activeDropId?: string): number {
+  const drops = campaign.drops;
   if (activeDropId) {
-    const active = campaign.drops.find((d) => d.id === activeDropId);
+    const active = drops.find((d) => d.id === activeDropId);
     if (active && active.requiredMinutes > 0) {
       return active.isClaimed ? active.requiredMinutes : active.currentMinutes;
     }
   }
 
   let watched = 0;
-  for (const d of campaign.drops) {
+  for (const d of drops) {
     if (d.requiredMinutes <= 0) continue;
     if (d.isClaimed) watched = Math.max(watched, d.requiredMinutes);
     else if (d.currentMinutes > 0) watched = Math.max(watched, d.currentMinutes);
@@ -112,7 +83,7 @@ function watchedCumulativeMinutes(campaign: CampaignInfo, activeDropId?: string)
   return watched;
 }
 
-function dropOwnRemainingMinutes(drop: CampaignInfo["drops"][number]): number {
+function dropOwnRemainingMinutes(drop: CampaignDrop): number {
   if (drop.isClaimed) return 0;
   if (drop.requiredMinutes <= 0) return 0;
   return Math.max(0, drop.requiredMinutes - drop.currentMinutes);
@@ -142,6 +113,58 @@ function dropTotalRemainingMinutes(
   return total;
 }
 
+/** Drop reached its watch milestone or was claimed (TDM inventory status). */
+export function isDropEarned(
+  drop: CampaignDrop,
+  campaign: CampaignInfo,
+  activeDropId?: string
+): boolean {
+  if (drop.isClaimed || drop.isComplete) return true;
+
+  if (usesSharedWatchProgress(campaign.drops)) {
+    const watched = watchedCumulativeMinutes(campaign, activeDropId);
+    if (drop.requiredMinutes > 0 && watched >= drop.requiredMinutes) return true;
+  }
+
+  return false;
+}
+
+/** Total watch minutes left for the campaign (TDM campaign.remaining_minutes). */
+export function campaignRemainingMinutesTotal(
+  campaign: CampaignInfo,
+  activeDropId?: string
+): number {
+  const drops = campaign.drops;
+  if (drops.length === 0) return 0;
+
+  const unclaimed = drops.filter((d) => !d.isClaimed && d.requiredMinutes > 0);
+  if (unclaimed.length === 0) return 0;
+
+  const hasPreconditions = drops.some((d) => (d.preconditionDropIds?.length ?? 0) > 0);
+  if (hasPreconditions) {
+    let maxRemaining = 0;
+    for (const d of unclaimed) {
+      maxRemaining = Math.max(maxRemaining, dropTotalRemainingMinutes(campaign, d.id));
+    }
+    return maxRemaining;
+  }
+
+  if (usesSharedWatchProgress(drops)) {
+    const target = Math.max(...unclaimed.map((d) => d.requiredMinutes));
+    const watched = watchedCumulativeMinutes(campaign, activeDropId);
+    return Math.max(0, target - watched);
+  }
+
+  return Math.max(
+    0,
+    drops.reduce((sum, d) => {
+      const req = Math.max(0, d.requiredMinutes);
+      if (req <= 0 || d.isClaimed) return sum;
+      return sum + Math.max(0, req - Math.min(d.currentMinutes, req));
+    }, 0)
+  );
+}
+
 /** Mark earlier sequential drops complete when a later drop has watch progress. */
 export function applySequentialDropProgress(
   campaign: CampaignInfo,
@@ -151,6 +174,27 @@ export function applySequentialDropProgress(
 ): number {
   const idx = campaign.drops.findIndex((d) => d.id === activeDropId);
   if (idx < 0) return -1;
+
+  if (usesSharedWatchProgress(campaign.drops)) {
+    const active = campaign.drops[idx];
+    active.currentMinutes = Math.max(active.currentMinutes, currentMinutes);
+    if (requiredMinutes && requiredMinutes > 0) {
+      active.requiredMinutes = requiredMinutes;
+    }
+    for (const d of campaign.drops) {
+      if (d.requiredMinutes > 0 && active.currentMinutes >= d.requiredMinutes) {
+        if (d.id === activeDropId) continue;
+        if (!d.isClaimed) {
+          d.isComplete = true;
+        }
+      }
+    }
+    if (active.requiredMinutes > 0 && active.currentMinutes >= active.requiredMinutes) {
+      active.isComplete = true;
+      active.canClaim = true;
+    }
+    return idx;
+  }
 
   for (let i = 0; i < idx; i++) {
     const d = campaign.drops[i];
@@ -178,14 +222,14 @@ export function computeCampaignMetrics(
   activeDropId?: string
 ): CampaignMetrics {
   const total = campaign.drops.length;
-
   const claimedDrops = campaign.drops.filter((d) => d.isClaimed).length;
 
   const progress =
     total > 0
       ? (campaign.drops.reduce((sum, d) => {
-          if (d.requiredMinutes <= 0) return sum + (d.isClaimed ? 1 : 0);
-          const mins = d.isClaimed ? d.requiredMinutes : d.currentMinutes;
+          if (d.requiredMinutes <= 0) return sum + (d.isClaimed || isDropEarned(d, campaign, activeDropId) ? 1 : 0);
+          if (d.isClaimed || isDropEarned(d, campaign, activeDropId)) return sum + 1;
+          const mins = d.currentMinutes;
           return sum + Math.min(1, mins / d.requiredMinutes);
         }, 0) /
           total) *
@@ -221,32 +265,43 @@ export function findCampaignForDrop(
   return null;
 }
 
+function sortDropsByRequiredMinutes(drops: CampaignDropView[]): CampaignDropView[] {
+  return [...drops].sort(
+    (a, b) => a.requiredMinutes - b.requiredMinutes || a.name.localeCompare(b.name)
+  );
+}
+
 export function splitCampaignDrops(
   campaign: CampaignInfo,
   activeDropId: string
 ): { claimed: CampaignDropView[]; upcoming: CampaignDropView[] } {
   const gameImageUrl = campaign.gameImageUrl ?? "";
-  const toDropView = (d: CampaignInfo["drops"][number]): CampaignDropView => ({
+  const toDropView = (d: CampaignDrop): CampaignDropView => ({
     id: d.id,
     name: d.name,
     imageUrl: d.imageUrl || gameImageUrl,
     requiredMinutes: d.requiredMinutes,
     currentMinutes: d.isClaimed && d.requiredMinutes > 0 ? d.requiredMinutes : d.currentMinutes,
-    isComplete: d.isComplete,
+    isComplete: d.isComplete || isDropEarned(d, campaign, activeDropId),
     isClaimed: d.isClaimed,
   });
 
-  const activeIdx = campaign.drops.findIndex((d) => d.id === activeDropId);
-  if (activeIdx < 0) {
-    return {
-      claimed: campaign.drops.filter((d) => d.isClaimed).map(toDropView),
-      upcoming: campaign.drops.filter((d) => !d.isClaimed && d.id !== activeDropId).map(toDropView),
-    };
-  }
+  const claimed = campaign.drops
+    .filter((d) => d.id !== activeDropId && (d.isClaimed || isDropEarned(d, campaign, activeDropId)))
+    .map(toDropView);
+
+  const upcoming = campaign.drops
+    .filter(
+      (d) =>
+        d.id !== activeDropId &&
+        !d.isClaimed &&
+        !isDropEarned(d, campaign, activeDropId)
+    )
+    .map(toDropView);
 
   return {
-    claimed: campaign.drops.filter((d, i) => i < activeIdx && (d.isClaimed || d.isComplete)).map(toDropView),
-    upcoming: campaign.drops.slice(activeIdx + 1).map(toDropView),
+    claimed: sortDropsByRequiredMinutes(claimed),
+    upcoming: sortDropsByRequiredMinutes(upcoming),
   };
 }
 

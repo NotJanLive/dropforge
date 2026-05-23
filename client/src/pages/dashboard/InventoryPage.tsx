@@ -132,10 +132,10 @@ export function InventoryPage() {
   return (
     <DashboardPage>
       <div className="mb-4 shrink-0 space-y-4">
-        <div className="flex items-start justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-semibold">Inventory</h1>
-          <p className="text-muted-foreground">
+        <div className="flex flex-wrap items-start justify-between gap-3 sm:gap-4">
+        <div className="min-w-0 flex-1">
+          <h1 className="text-xl font-semibold sm:text-2xl">Inventory</h1>
+          <p className="text-sm text-muted-foreground sm:text-base">
             All drop campaigns and rewards — filters match TwitchDropsMiner.
             {allCampaigns.length > 0 && (
               <span className="block text-xs mt-1">
@@ -146,7 +146,7 @@ export function InventoryPage() {
             )}
           </p>
         </div>
-        <Button variant="outline" size="sm" onClick={reload} disabled={reloading}>
+        <Button variant="outline" size="sm" className="shrink-0 min-h-10" onClick={reload} disabled={reloading}>
           <RefreshCw className={cn("h-4 w-4 mr-2", reloading && "animate-spin")} />
           Reload
         </Button>

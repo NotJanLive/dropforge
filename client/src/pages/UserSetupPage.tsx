@@ -5,6 +5,7 @@ import { StepWizard } from "@/components/StepWizard";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { TwitchDeviceLink } from "@/components/TwitchDeviceLink";
 import { api } from "@/lib/api";
 import { buildGameOptions, gamesAvailableForAdd } from "@/lib/campaignGames";
 import { useAuth } from "@/context/AuthContext";
@@ -26,15 +27,11 @@ export function UserSetupPage() {
   const [step, setStep] = useState(skipPassword ? 1 : 0);
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
-  const [userCode, setUserCode] = useState("");
-  const [verificationUri, setVerificationUri] = useState("");
-  const [deviceId, setDeviceId] = useState("");
   const [campaigns, setCampaigns] = useState<CampaignItem[]>([]);
   const [priorityGames, setPriorityGames] = useState<string[]>([]);
   const [pickGame, setPickGame] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
-  const [pollStatus, setPollStatus] = useState("");
   const navigate = useNavigate();
 
   const totalSteps = skipPassword ? 3 : 4;
@@ -91,27 +88,7 @@ export function UserSetupPage() {
         await api.completeUserStep(1);
         await refresh();
         setStep(1);
-      } else if (step === 1) {
-        const flow = await api.twitchLinkStart();
-        setUserCode(flow.userCode);
-        setVerificationUri(flow.verificationUri);
-        setDeviceId(flow.deviceId);
-        setPollStatus("Waiting for authorization...");
-        const poll = async (): Promise<boolean> => {
-          const result = await api.twitchLinkPoll(flow.deviceId);
-          if (result.status === "completed") return true;
-          if (result.status === "expired" || result.status === "failed") {
-            throw new Error("Twitch authorization failed or expired");
-          }
-          await new Promise((r) => setTimeout(r, flow.interval * 1000));
-          return poll();
-        };
-        await poll();
-        setPollStatus("Twitch linked successfully");
-        await api.completeUserStep(2);
-        await refresh();
-        setStep(2);
-      } else {
+      } else if (step === 3) {
         await api.updateMinerSettings({
           priorityGames,
           excludeGames: [],
@@ -164,30 +141,17 @@ export function UserSetupPage() {
       )}
 
       {step === 1 && (
-        <div className="space-y-4">
-          {!userCode ? (
-            <p className="text-sm text-muted-foreground">
-              Click continue to generate a device code. You'll enter it at twitch.tv/activate.
-            </p>
-          ) : (
-            <>
-              <div className="rounded-lg bg-secondary p-4 text-center">
-                <p className="text-xs text-muted-foreground mb-1">Your code</p>
-                <p className="text-2xl font-bold tracking-widest">{userCode}</p>
-              </div>
-              <Button variant="outline" className="w-full" asChild>
-                <a href={verificationUri} target="_blank" rel="noreferrer">
-                  Open twitch.tv/activate
-                </a>
-              </Button>
-              {pollStatus && <p className="text-sm text-muted-foreground">{pollStatus}</p>}
-            </>
-          )}
-        </div>
+        <TwitchDeviceLink
+          onLinked={async () => {
+            await api.completeUserStep(2);
+            await refresh();
+            setStep(2);
+          }}
+        />
       )}
 
       {step === 2 && (
-        <p className="text-sm text-muted-foreground flex items-center gap-2">
+        <p className="flex items-center gap-2 text-sm text-muted-foreground">
           Loading active games from Twitch…
         </p>
       )}
@@ -261,9 +225,9 @@ export function UserSetupPage() {
         </div>
       )}
 
-      {error && <p className="text-sm text-red-400 mt-4">{error}</p>}
-      {step !== 2 && (
-        <Button className="w-full mt-4" disabled={loading} onClick={next}>
+      {error && <p className="mt-4 text-sm text-red-400">{error}</p>}
+      {step !== 2 && step !== 1 && (
+        <Button className="mt-4 w-full" disabled={loading} onClick={next}>
           {loading ? "Please wait…" : step === 3 ? "Finish setup" : "Continue"}
         </Button>
       )}

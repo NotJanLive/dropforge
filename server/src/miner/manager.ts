@@ -7,7 +7,7 @@ import type { MinerStatus } from "./constants.js";
 
 type BroadcastFn = (userId: number, status: MinerStatus) => void;
 
-function parseJsonArray(value: string): string[] {
+export function parseJsonArray(value: string): string[] {
   try {
     const parsed = JSON.parse(value);
     return Array.isArray(parsed) ? parsed.map(String) : [];
@@ -36,6 +36,38 @@ function loadSettings(userId: number): MinerSettings {
   };
 }
 
+function mergeSettings(before: MinerSettings, partial: Partial<MinerSettings>): MinerSettings {
+  const merged = { ...before };
+  if (partial.priorityMode !== undefined) merged.priorityMode = partial.priorityMode;
+  if (partial.priorityGames !== undefined) merged.priorityGames = partial.priorityGames;
+  if (partial.excludeGames !== undefined) merged.excludeGames = partial.excludeGames;
+  if (partial.manualChannelLogin !== undefined) merged.manualChannelLogin = partial.manualChannelLogin;
+  if (partial.activeCampaignId !== undefined) merged.activeCampaignId = partial.activeCampaignId;
+  return merged;
+}
+
+export function createUnlinkedMinerStatus(): MinerStatus {
+  return {
+    state: "STOPPED",
+    message: "Twitch account not linked — link your account in Settings to start mining",
+    watchingChannel: null,
+    watchingGame: null,
+    currentDrop: null,
+    activeMining: null,
+    campaigns: [],
+    channels: [],
+    logs: [],
+    websocketConnections: 0,
+    lastWatchAt: null,
+    updatedAt: new Date().toISOString(),
+    activeCampaignId: null,
+    focusedCampaignId: null,
+    focusedCampaignName: null,
+    focusedGameName: null,
+    miningCampaignOptions: [],
+  };
+}
+
 export class MinerManager {
   private workers = new Map<number, MinerWorker>();
   private broadcast: BroadcastFn = () => undefined;
@@ -59,7 +91,7 @@ export class MinerManager {
   private persistSettingsPartial(userId: number, partial: Partial<MinerSettings>) {
     const now = new Date().toISOString();
     const before = loadSettings(userId);
-    const merged = { ...before, ...partial };
+    const merged = mergeSettings(before, partial);
     const existing = db.select().from(userMinerSettings).where(eq(userMinerSettings.userId, userId)).get();
 
     if (existing) {
@@ -120,7 +152,7 @@ export class MinerManager {
     const now = new Date().toISOString();
     const before = loadSettings(userId);
     const existing = db.select().from(userMinerSettings).where(eq(userMinerSettings.userId, userId)).get();
-    const merged = { ...before, ...settings };
+    const merged = mergeSettings(before, settings);
     const rulesChanged =
       settings.priorityGames !== undefined ||
       settings.excludeGames !== undefined ||

@@ -8,6 +8,7 @@ import { OverviewPage } from "@/pages/dashboard/OverviewPage";
 import { CampaignsPage } from "@/pages/dashboard/CampaignsPage";
 import { ChannelsPage } from "@/pages/dashboard/ChannelsPage";
 import { SettingsPage } from "@/pages/dashboard/SettingsPage";
+import { TwitchLinkPage } from "@/pages/dashboard/TwitchLinkPage";
 import { InventoryPage } from "@/pages/dashboard/InventoryPage";
 import { UsersPage } from "@/pages/dashboard/UsersPage";
 
@@ -111,6 +112,14 @@ export default function App() {
         element={
           <ProtectedDashboard>
             <ChannelsRedirect />
+          </ProtectedDashboard>
+        }
+      />
+      <Route
+        path="/dashboard/twitch-link"
+        element={
+          <ProtectedDashboard>
+            <TwitchLinkPage />
           </ProtectedDashboard>
         }
       />

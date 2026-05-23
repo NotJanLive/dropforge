@@ -91,6 +91,7 @@ export class MinerWorker {
   private lastCampaignCount = -1;
   private claiming = false;
   private watchGraceUntil = 0;
+  private maintenanceTriggers: number[] = [];
 
   constructor(
     private userId: number,
@@ -313,9 +314,12 @@ export class MinerWorker {
   async refreshCampaignSummaries() {
     if (!this.running) return;
     invalidateCampaignSourceCache(this.auth.userId);
+    const prevMiningCount = this.miningCampaigns.length;
     const quick = await fetchInventory(this.auth, { quick: true });
     this.applyInventoryList(quick);
-    if (this.miningCampaigns.length === 0 && !this.watching) {
+    if (this.miningCampaigns.length > prevMiningCount && !this.watching) {
+      await this.resumeMiningIfEligible("New campaigns available — starting mining");
+    } else if (this.miningCampaigns.length === 0 && !this.watching) {
       this.enterIdleState();
     } else if (this.watching && this.broadcastId) {
       this.setWatchingState(this.watching.login);
@@ -727,19 +731,21 @@ export class MinerWorker {
   private async loopIteration() {
     const now = Date.now();
 
-    const maintenanceDue =
-      this.lastInventoryRefresh > 0 &&
-      now - this.lastInventoryRefresh >= INVENTORY_MAINTENANCE_MS;
-
     if (
-      (this.forceInventoryRefresh || this.allCampaigns.length === 0 || maintenanceDue) &&
+      (this.forceInventoryRefresh ||
+        this.allCampaigns.length === 0 ||
+        this.isInventoryMaintenanceDue(now)) &&
       !this.inventoryRefreshing
     ) {
-      if (maintenanceDue && !this.forceInventoryRefresh && this.allCampaigns.length > 0) {
+      if (
+        this.isInventoryMaintenanceDue(now) &&
+        !this.forceInventoryRefresh &&
+        this.allCampaigns.length > 0
+      ) {
         this.addLog("info", "Scheduled inventory refresh (hourly check for new campaigns)");
         this.forceInventoryRefresh = true;
       }
-      void this.refreshInventory();
+      await this.refreshInventory();
     } else if (now - this.lastChannelRefresh >= CHANNEL_REFRESH_MS) {
       await this.refreshChannelsQuietly();
       this.lastChannelRefresh = now;
@@ -749,10 +755,48 @@ export class MinerWorker {
     await this.maintainWatching();
   }
 
+  /** TDM maintenance_task — campaign/drop start/end within the next hour, or hourly reload. */
+  private isInventoryMaintenanceDue(now: number): boolean {
+    if (this.lastInventoryRefresh <= 0) return false;
+    if (now - this.lastInventoryRefresh >= INVENTORY_MAINTENANCE_MS) return true;
+    while (this.maintenanceTriggers.length > 0 && this.maintenanceTriggers[0] <= now) {
+      this.maintenanceTriggers.shift();
+      return true;
+    }
+    return false;
+  }
+
+  private scheduleMaintenanceTriggers() {
+    const now = Date.now();
+    const nextHour = now + INVENTORY_MAINTENANCE_MS;
+    const triggers = new Set<number>([nextHour]);
+
+    for (const campaign of this.allCampaigns) {
+      for (const ts of [campaign.startsAt, campaign.endsAt]) {
+        const t = Date.parse(ts);
+        if (Number.isFinite(t) && t > now && t <= nextHour) triggers.add(t);
+      }
+      for (const drop of campaign.drops) {
+        const t = Date.parse(drop.endsAt);
+        if (Number.isFinite(t) && t > now && t <= nextHour) triggers.add(t);
+      }
+    }
+
+    this.maintenanceTriggers = [...triggers].sort((a, b) => a - b);
+  }
+
+  private async resumeMiningIfEligible(reason: string) {
+    if (this.miningCampaigns.length === 0 || this.watching) return;
+    this.addLog("info", reason);
+    await this.rebuildChannelsFromMining();
+    await this.maintainWatching();
+  }
+
   private applyInventoryList(campaigns: CampaignInfo[]) {
     const merged = mergeCampaignProgress(this.allCampaigns, campaigns);
     this.allCampaigns = finalizeCampaigns(merged);
     this.refilterMiningCampaigns();
+    this.scheduleMaintenanceTriggers();
   }
 
   private async refreshInventory() {
@@ -793,11 +837,16 @@ export class MinerWorker {
       }
 
       const fetched = await fetchInventory(this.auth);
+      const prevMiningCount = this.miningCampaigns.length;
       this.applyInventoryList(fetched);
 
       if (this.allCampaigns.length !== this.lastCampaignCount) {
         this.addLog("info", `Loaded ${this.allCampaigns.length} campaign(s) from Twitch`);
         this.lastCampaignCount = this.allCampaigns.length;
+      }
+
+      if (this.miningCampaigns.length > prevMiningCount && !this.watching) {
+        await this.resumeMiningIfEligible("New earnable campaigns detected — starting mining");
       }
 
       await this.rebuildChannelsFromMining();
@@ -808,6 +857,8 @@ export class MinerWorker {
       this.lastChannelRefresh = Date.now();
       if (this.miningCampaigns.length === 0 && !this.watching) {
         this.enterIdleState();
+      } else if (!this.watching && this.miningCampaigns.length > 0) {
+        await this.maintainWatching();
       } else if (this.watching && this.broadcastId) {
         this.setWatchingState(this.watching.login);
       }
@@ -899,6 +950,7 @@ export class MinerWorker {
       if (this.miningCampaigns.length === 0) {
         this.enterIdleState(true);
         this.forceInventoryRefresh = true;
+        void this.refreshInventory();
         return;
       }
 

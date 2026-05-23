@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -9,6 +10,7 @@ import { DashboardPage, DashboardScrollArea } from "@/components/DashboardPage";
 
 export function SettingsPage() {
   const { user } = useAuth();
+  const navigate = useNavigate();
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [globalMode, setGlobalMode] = useState("PRIORITY_ONLY");
@@ -46,9 +48,7 @@ export function SettingsPage() {
     setMessage("Global settings saved");
   };
 
-  const relinkTwitch = async () => {
-    window.location.href = "/setup/user";
-  };
+  const openTwitchLink = () => navigate("/dashboard/twitch-link");
 
   const unlink = async () => {
     await api.twitchUnlink();
@@ -60,8 +60,8 @@ export function SettingsPage() {
   return (
     <DashboardPage>
       <div className="mb-4 shrink-0 max-w-2xl space-y-2">
-        <h1 className="text-2xl font-semibold">Settings</h1>
-        <p className="text-muted-foreground">Account and miner configuration</p>
+        <h1 className="text-xl font-semibold sm:text-2xl">Settings</h1>
+        <p className="text-sm text-muted-foreground sm:text-base">Account and miner configuration</p>
         {message && <p className="text-sm text-primary">{message}</p>}
         {error && <p className="text-sm text-red-400">{error}</p>}
       </div>
@@ -93,9 +93,15 @@ export function SettingsPage() {
               {twitchLinked ? `Linked as ${twitchLogin}` : "Not linked"}
             </CardDescription>
           </CardHeader>
-          <CardContent className="flex gap-2">
-            <Button variant="outline" onClick={relinkTwitch}>Re-link Twitch</Button>
-            {twitchLinked && <Button variant="destructive" onClick={unlink}>Unlink</Button>}
+          <CardContent className="flex flex-wrap gap-2">
+            <Button variant="outline" className="min-h-10" onClick={openTwitchLink}>
+              {twitchLinked ? "Re-link Twitch" : "Link Twitch"}
+            </Button>
+            {twitchLinked && (
+              <Button variant="destructive" className="min-h-10" onClick={unlink}>
+                Unlink
+              </Button>
+            )}
           </CardContent>
         </Card>
       )}

@@ -8,7 +8,7 @@ import { buildGameOptions } from "@/lib/campaignGames";
 import { resolveGameImageUrl } from "@/lib/gameImage";
 import { useAuth } from "@/context/AuthContext";
 import { cn } from "@/lib/utils";
-import { DashboardPage } from "@/components/DashboardPage";
+import { DashboardPage, DashboardScrollArea } from "@/components/DashboardPage";
 
 type CampaignItem = {
   id: string;
@@ -34,6 +34,7 @@ export function CampaignsPage() {
   const [saving, setSaving] = useState(false);
   const [reloading, setReloading] = useState(false);
   const [dirty, setDirty] = useState(false);
+  const [settingsLoaded, setSettingsLoaded] = useState(false);
 
   const loadCached = async () => {
     if (user?.role !== "user") return;
@@ -45,6 +46,7 @@ export function CampaignsPage() {
       setExcludeGames(s.excludeGames);
       setPriorityMode(s.priorityMode);
       setDirty(false);
+      setSettingsLoaded(true);
     } catch (err) {
       setFeedback({
         type: "error",
@@ -64,6 +66,7 @@ export function CampaignsPage() {
       setExcludeGames(s.excludeGames);
       setPriorityMode(s.priorityMode);
       setDirty(false);
+      setSettingsLoaded(true);
       setFeedback({ type: "success", message: `Refreshed — ${c.campaigns.length} campaigns from Twitch.` });
     } catch (err) {
       setFeedback({
@@ -150,10 +153,10 @@ export function CampaignsPage() {
   return (
     <DashboardPage>
       <div className="mb-4 shrink-0 space-y-4">
-        <div className="flex flex-wrap items-start justify-between gap-4">
-          <div>
-            <h1 className="text-2xl font-semibold">Drop lists</h1>
-            <p className="text-muted-foreground">
+        <div className="flex flex-wrap items-start justify-between gap-3 sm:gap-4">
+          <div className="min-w-0 flex-1">
+            <h1 className="text-xl font-semibold sm:text-2xl">Drop lists</h1>
+            <p className="text-sm text-muted-foreground sm:text-base">
               Priority and ignore lists by game — like Twitch Drops Miner. Save, then reload if needed.
             </p>
           </div>
@@ -169,7 +172,7 @@ export function CampaignsPage() {
           <Button
             variant="outline"
             onClick={save}
-            disabled={saving || refreshing || reloading}
+            disabled={!settingsLoaded || saving || refreshing || reloading}
             className={cn(dirty && "border-primary/50")}
           >
             {saving ? (
@@ -194,73 +197,71 @@ export function CampaignsPage() {
         <ActionFeedback feedback={feedback} />
       </div>
 
-      <div className="flex min-h-0 flex-1 flex-col gap-6 overflow-hidden">
-        <div className="shrink-0">
-          <DropListsEditor
-            games={games}
-            priorityGames={priorityGames}
-            excludeGames={excludeGames}
-            priorityMode={priorityMode}
-            onPriorityGamesChange={(g) => {
-              setPriorityGames(g);
-              markDirty();
-            }}
-            onExcludeGamesChange={(g) => {
-              setExcludeGames(g);
-              markDirty();
-            }}
-            onPriorityModeChange={(m) => {
-              setPriorityMode(m);
-              markDirty();
-            }}
-          />
-        </div>
+      <DashboardScrollArea className="space-y-4 sm:space-y-6 pb-2">
+        <DropListsEditor
+          games={games}
+          priorityGames={priorityGames}
+          excludeGames={excludeGames}
+          priorityMode={priorityMode}
+          onPriorityGamesChange={(g) => {
+            setPriorityGames(g);
+            markDirty();
+          }}
+          onExcludeGamesChange={(g) => {
+            setExcludeGames(g);
+            markDirty();
+          }}
+          onPriorityModeChange={(m) => {
+            setPriorityMode(m);
+            markDirty();
+          }}
+        />
 
-        <Card className="flex min-h-0 flex-1 flex-col overflow-hidden">
-          <CardHeader className="shrink-0 pb-3">
+        <Card>
+          <CardHeader className="pb-3">
             <CardTitle className="text-base">Available games</CardTitle>
             <CardDescription>
               {games.length} games with drop campaigns on Twitch (read-only overview)
             </CardDescription>
           </CardHeader>
-          <CardContent className="min-h-0 flex-1 overflow-y-auto pt-0">
-            <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 pb-1">
-            {games.map((g) => {
-              const inPriority = priorityGames.includes(g.name);
-              const ignored = excludeGames.includes(g.name);
-              return (
-                <div
-                  key={g.name}
-                  className={cn(
-                    "flex items-center gap-2 rounded-lg border p-2 text-sm",
-                    inPriority && "border-primary/40 bg-primary/5",
-                    ignored && "opacity-50 border-border/40"
-                  )}
-                >
-                  {g.imageUrl ? (
-                    <img
-                      src={resolveGameImageUrl({ gameImageUrl: g.imageUrl, gameName: g.name })}
-                      alt=""
-                      className="h-9 w-7 rounded object-cover shrink-0"
-                      referrerPolicy="no-referrer"
-                    />
-                  ) : (
-                    <div className="h-9 w-7 rounded bg-muted shrink-0" />
-                  )}
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate font-medium">{g.name}</p>
-                    <p className="text-xs text-muted-foreground truncate">
-                      {g.campaignCount} campaign{g.campaignCount === 1 ? "" : "s"}
-                      {!g.linked && " · link account"}
-                    </p>
+          <CardContent className="pt-0">
+            <div className="grid gap-2 pb-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+              {games.map((g) => {
+                const inPriority = priorityGames.includes(g.name);
+                const ignored = excludeGames.includes(g.name);
+                return (
+                  <div
+                    key={g.name}
+                    className={cn(
+                      "flex items-center gap-2 rounded-lg border p-2 text-sm",
+                      inPriority && "border-primary/40 bg-primary/5",
+                      ignored && "opacity-50 border-border/40"
+                    )}
+                  >
+                    {g.imageUrl ? (
+                      <img
+                        src={resolveGameImageUrl({ gameImageUrl: g.imageUrl, gameName: g.name })}
+                        alt=""
+                        className="h-9 w-7 shrink-0 rounded object-cover"
+                        referrerPolicy="no-referrer"
+                      />
+                    ) : (
+                      <div className="h-9 w-7 shrink-0 rounded bg-muted" />
+                    )}
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate font-medium">{g.name}</p>
+                      <p className="truncate text-xs text-muted-foreground">
+                        {g.campaignCount} campaign{g.campaignCount === 1 ? "" : "s"}
+                        {!g.linked && " · link account"}
+                      </p>
+                    </div>
                   </div>
-                </div>
-              );
-            })}
-          </div>
+                );
+              })}
+            </div>
           </CardContent>
         </Card>
-      </div>
+      </DashboardScrollArea>
     </DashboardPage>
   );
 }

@@ -87,7 +87,7 @@ export function UsersPage() {
   return (
     <DashboardPage>
       <DashboardPageHeader>
-        <h1 className="text-2xl font-semibold">Users</h1>
+        <h1 className="text-xl font-semibold sm:text-2xl">Users</h1>
         <p className="text-muted-foreground">Create and manage miner accounts</p>
       </DashboardPageHeader>
 

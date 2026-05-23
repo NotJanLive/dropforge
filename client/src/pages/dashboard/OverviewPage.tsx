@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
-import { Activity, CheckCircle2, Circle, Radio, RefreshCw, Terminal, Timer } from "lucide-react";
+import { useNavigate } from "react-router-dom";
+import { Activity, AlertCircle, CheckCircle2, Circle, Radio, RefreshCw, Terminal, Timer } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
@@ -15,24 +16,35 @@ import {
 import { TwitchImage } from "@/components/TwitchImage";
 import { resolveGameImageUrl } from "@/lib/gameImage";
 import { cn } from "@/lib/utils";
-import { DashboardPage } from "@/components/DashboardPage";
+import { DashboardPage, DashboardScrollArea } from "@/components/DashboardPage";
 
 export function OverviewPage() {
   const { user } = useAuth();
+  const navigate = useNavigate();
   const [status, setStatus] = useState<MinerStatus | null>(null);
+  const [twitchLinked, setTwitchLinked] = useState<boolean | null>(null);
   const [switching, setSwitching] = useState<string | null>(null);
   const [selectingCampaign, setSelectingCampaign] = useState(false);
-  const wsStatus = useMinerWebSocket(user?.role === "user" ? user.id : null);
   const logRef = useRef<HTMLDivElement>(null);
+  const wsStatus = useMinerWebSocket(
+    user?.role === "user" && twitchLinked !== false ? user.id : null
+  );
 
   useEffect(() => {
     if (user?.role !== "user") return;
-    api.minerStatus().then((r) => {
-      if (r.status) setStatus((prev) => prev ?? r.status);
-    }).catch(() => undefined);
+    const load = () => {
+      api.twitchStatus().then((s) => setTwitchLinked(s.linked)).catch(() => setTwitchLinked(false));
+      api.minerStatus().then((r) => {
+        if (r.status) setStatus(r.status);
+        if (r.twitchLinked === false) setTwitchLinked(false);
+      }).catch(() => undefined);
+    };
+    load();
+    window.addEventListener("focus", load);
+    return () => window.removeEventListener("focus", load);
   }, [user]);
 
-  const live = wsStatus ?? status;
+  const live = twitchLinked === false ? status : wsStatus ?? status;
   const mining = live?.activeMining;
 
   const dropRemainingSec = useWatchRemainingSeconds(
@@ -60,6 +72,7 @@ export function OverviewPage() {
   };
 
   const reload = async () => {
+    if (twitchLinked !== true) return;
     const result = await api.minerReload();
     if (result.status) setStatus(result.status);
   };
@@ -96,22 +109,57 @@ export function OverviewPage() {
   return (
     <DashboardPage className="gap-4">
       <div className="shrink-0 space-y-4">
-        <div className="flex items-start justify-between gap-4">
-          <div>
-            <h1 className="text-2xl font-semibold">Miner</h1>
-            <p className="text-muted-foreground">
-              {live?.watchingChannel
-                ? `Watching: ${live.watchingChannel}${live.watchingGame ? ` · ${live.watchingGame}` : ""}`
-                : live?.message ?? "Connecting..."}
+        {twitchLinked === false && (
+          <Card className="border-amber-500/30 bg-amber-500/5">
+            <CardContent className="p-4 sm:p-5">
+              <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                <div className="flex min-w-0 items-start gap-3">
+                  <AlertCircle className="mt-0.5 h-5 w-5 shrink-0 text-amber-400" />
+                  <div className="min-w-0 space-y-1">
+                    <p className="text-sm font-semibold leading-snug">Twitch not linked</p>
+                    <p className="text-sm leading-relaxed text-muted-foreground">
+                      Link your Twitch account to enable the miner and load drop campaigns.
+                    </p>
+                  </div>
+                </div>
+                <Button
+                  type="button"
+                  className="w-full shrink-0 sm:w-auto"
+                  onClick={() => navigate("/dashboard/twitch-link")}
+                >
+                  Link Twitch
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
+        <div className="flex flex-wrap items-start justify-between gap-3 sm:gap-4">
+          <div className="min-w-0 flex-1">
+            <h1 className="text-xl font-semibold sm:text-2xl">Miner</h1>
+            <p className="text-sm break-words text-muted-foreground sm:text-base">
+              {twitchLinked === false
+                ? "Twitch account required — link your account to start mining"
+                : live?.watchingChannel
+                  ? `Watching: ${live.watchingChannel}${live.watchingGame ? ` · ${live.watchingGame}` : ""}`
+                  : live?.message ?? (twitchLinked ? "Starting miner…" : "Checking Twitch link…")}
             </p>
           </div>
-          <Button variant="outline" size="sm" onClick={reload}>
+          <Button
+            variant="outline"
+            size="sm"
+            className="shrink-0 min-h-10"
+            onClick={reload}
+            disabled={twitchLinked !== true}
+          >
             <RefreshCw className="h-4 w-4 mr-2" />
             Reload
           </Button>
         </div>
+      </div>
 
-        <div className="grid gap-4 md:grid-cols-3">
+      <DashboardScrollArea className="space-y-4 pb-2 lg:min-h-0 lg:flex-1 lg:overflow-hidden">
+        <div className="grid gap-3 sm:grid-cols-2 sm:gap-4 md:grid-cols-3">
           <StatCard icon={Activity} label="Status" value={live?.state ?? "—"} />
           <StatCard icon={Radio} label="Watching" value={live?.watchingChannel ?? "None"} />
           <StatCard
@@ -120,18 +168,23 @@ export function OverviewPage() {
             value={live?.lastWatchAt ? new Date(live.lastWatchAt).toLocaleTimeString() : "—"}
           />
         </div>
-      </div>
 
-      <div className="grid min-h-0 flex-1 gap-4 overflow-hidden lg:grid-cols-[minmax(0,1fr)_300px] lg:items-stretch">
-        <div className="flex min-h-0 min-w-0 flex-col gap-4 overflow-hidden">
+        <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_300px] lg:min-h-full lg:items-stretch">
+        <div className="order-1 flex min-w-0 flex-col gap-4 lg:min-h-0 lg:overflow-hidden">
           <Card
             className={cn(
-              "flex min-h-0 flex-1 flex-col overflow-hidden border-primary/25",
+              "flex flex-col border-primary/25 lg:min-h-0 lg:flex-1 lg:overflow-hidden",
               live?.state === "IDLE" && "border-border/60"
             )}
           >
             <CardHeader className="shrink-0 space-y-3 pb-3">
-              <CardTitle>{live?.state === "IDLE" ? "Miner status" : "Campaign progress"}</CardTitle>
+              <CardTitle>
+                {twitchLinked === false
+                  ? "Miner status"
+                  : live?.state === "IDLE"
+                    ? "Miner status"
+                    : "Campaign progress"}
+              </CardTitle>
               {(live?.miningCampaignOptions?.length ?? 0) > 0 && (
                 <div className="flex w-full justify-center">
                   <CampaignSelector
@@ -144,8 +197,14 @@ export function OverviewPage() {
                 </div>
               )}
             </CardHeader>
-            <CardContent className="flex min-h-0 flex-1 flex-col overflow-hidden gap-4 pt-0">
-            {live?.state === "IDLE" ? (
+            <CardContent className="flex flex-col gap-4 pt-0 lg:min-h-0 lg:flex-1 lg:overflow-hidden">
+            {twitchLinked === false ? (
+              <div className="py-10 text-center">
+                <p className="text-sm text-muted-foreground">
+                  No campaign data until Twitch is connected.
+                </p>
+              </div>
+            ) : live?.state === "IDLE" ? (
               <div className="py-8 text-center space-y-3">
                 <p className="text-xl font-medium">Idle</p>
                 <p className="text-muted-foreground text-sm max-w-md mx-auto">{live.message}</p>
@@ -214,7 +273,7 @@ export function OverviewPage() {
                   </div>
                 </div>
 
-                <div className="grid min-h-0 flex-1 gap-4 border-t border-border/60 pt-3 sm:grid-cols-2">
+                <div className="grid gap-4 border-t border-border/60 pt-3 sm:grid-cols-2 lg:min-h-0 lg:flex-1">
                   <DropListColumn
                     title="Claimed"
                     emptyText="No drops claimed yet"
@@ -268,6 +327,7 @@ export function OverviewPage() {
         </div>
 
         <ChannelsPanel
+          className="order-2"
           channels={channels}
           watchingChannel={live?.watchingChannel ?? null}
           switching={switching}
@@ -275,7 +335,8 @@ export function OverviewPage() {
           focusedCampaignName={live?.focusedCampaignName ?? null}
           onSwitch={switchTo}
         />
-      </div>
+        </div>
+      </DashboardScrollArea>
     </DashboardPage>
   );
 }
@@ -314,7 +375,7 @@ function CampaignSelector({
         className={cn(
           "flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm",
           "ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-          disabled && "opacity-50 cursor-not-allowed"
+          disabled && "cursor-not-allowed opacity-50"
         )}
       >
         <option value="__auto__">Automatic (priority)</option>
@@ -329,6 +390,7 @@ function CampaignSelector({
 }
 
 function ChannelsPanel({
+  className,
   channels,
   watchingChannel,
   switching,
@@ -336,6 +398,7 @@ function ChannelsPanel({
   focusedCampaignName,
   onSwitch,
 }: {
+  className?: string;
   channels: ChannelInfo[];
   watchingChannel: string | null;
   switching: string | null;
@@ -344,7 +407,7 @@ function ChannelsPanel({
   onSwitch: (login: string) => void;
 }) {
   return (
-    <Card className="flex h-full min-h-0 flex-col overflow-hidden">
+    <Card className={cn("flex min-h-[280px] flex-col overflow-hidden lg:h-full lg:min-h-0", className)}>
       <CardHeader className="pb-3 shrink-0">
         <CardTitle className="text-base">Channels</CardTitle>
         <CardDescription>
@@ -483,14 +546,14 @@ function ProgressRow({ label, value }: { label: string; value: string }) {
 function StatCard({ icon: Icon, label, value }: { icon: typeof Activity; label: string; value: string }) {
   return (
     <Card>
-      <CardContent className="pt-6">
+      <CardContent className="p-4 sm:p-5">
         <div className="flex items-center gap-3">
-          <div className="h-9 w-9 rounded-lg bg-primary/15 flex items-center justify-center">
+          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary/15">
             <Icon className="h-4 w-4 text-primary" />
           </div>
-          <div className="min-w-0">
-            <p className="text-xs text-muted-foreground">{label}</p>
-            <p className="font-medium truncate">{value}</p>
+          <div className="min-w-0 flex flex-col justify-center gap-0.5">
+            <p className="text-xs leading-normal text-muted-foreground">{label}</p>
+            <p className="truncate font-medium leading-snug">{value}</p>
           </div>
         </div>
       </CardContent>

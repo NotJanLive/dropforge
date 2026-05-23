@@ -127,7 +127,7 @@ export function DropListsEditor({
                 To ignore
               </Button>
             </div>
-            <Button type="button" className="w-full" size="sm" disabled={!pickGame} onClick={addGame}>
+            <Button type="button" className="w-full min-h-10" size="sm" disabled={!pickGame} onClick={addGame}>
               Add game
             </Button>
           </div>

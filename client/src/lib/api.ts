@@ -237,7 +237,8 @@ export const api = {
       method: "PUT",
       body: JSON.stringify(body),
     }),
-  minerStatus: () => request<{ status: MinerStatus | null }>("/api/twitch/miner/status"),
+  minerStatus: () =>
+    request<{ status: MinerStatus | null; twitchLinked?: boolean }>("/api/twitch/miner/status"),
   minerReload: () => request<{ ok: boolean; status: MinerStatus | null }>("/api/twitch/miner/reload", { method: "POST" }),
   selectCampaign: (campaignId: string | null) =>
     request<{ ok: boolean; status: MinerStatus | null }>("/api/twitch/miner/select-campaign", {
