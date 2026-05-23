@@ -172,6 +172,26 @@ export const api = {
     request<{ ok: boolean }>("/api/auth/setup/user/finish", { method: "POST" }),
   listUsers: () => request<{ users: AuthUser[] }>("/api/auth/users"),
   adminMiners: () => request<{ miners: AdminUserMinerView[] }>("/api/auth/admin/miners"),
+  adminReloadMiner: (userId: number) =>
+    request<{ ok: boolean; miner: AdminUserMinerView | null }>(
+      `/api/auth/admin/miners/${userId}/reload`,
+      { method: "POST" }
+    ),
+  adminRefreshCampaigns: (userId: number) =>
+    request<{ ok: boolean; miner: AdminUserMinerView | null }>(
+      `/api/auth/admin/miners/${userId}/campaigns/refresh`,
+      { method: "POST" }
+    ),
+  adminStartMiner: (userId: number) =>
+    request<{ ok: boolean; miner: AdminUserMinerView | null }>(
+      `/api/auth/admin/miners/${userId}/start`,
+      { method: "POST" }
+    ),
+  adminStopMiner: (userId: number) =>
+    request<{ ok: boolean; miner: AdminUserMinerView | null }>(
+      `/api/auth/admin/miners/${userId}/stop`,
+      { method: "POST" }
+    ),
   createUser: (body: { username: string; passwordType: "temporary" | "permanent"; password?: string }) =>
     request<{
       ok: boolean;

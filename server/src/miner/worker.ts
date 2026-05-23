@@ -318,10 +318,19 @@ export class MinerWorker {
     if (!this.running) return;
     invalidateCampaignSourceCache(this.auth.userId);
     const prevMiningCount = this.miningCampaigns.length;
+    const wasWatching = Boolean(this.watching?.login && this.broadcastId);
     const quick = await fetchInventory(this.auth, { quick: true });
     this.applyInventoryList(quick);
+
     if (this.miningCampaigns.length > prevMiningCount && !this.watching) {
       await this.resumeMiningIfEligible("New campaigns available — starting mining");
+    } else if (this.miningCampaigns.length > 0 && wasWatching) {
+      if (!this.watching || !this.broadcastId) {
+        await this.maintainWatching();
+      } else {
+        this.setWatchingState(this.watching.login);
+        await this.syncDropProgress();
+      }
     } else if (this.miningCampaigns.length === 0 && !this.watching) {
       this.enterIdleState();
     } else if (this.watching && this.broadcastId) {

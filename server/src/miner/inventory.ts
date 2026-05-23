@@ -576,10 +576,12 @@ export function mergeCampaignProgress(existing: CampaignInfo[], incoming: Campai
             e.gameName.toLowerCase() === campaign.gameName.toLowerCase()
         )?.gameImageUrl ?? "";
 
+      const mergedDrops = campaign.drops.length > 0 ? campaign.drops : (prev?.drops ?? []);
+
       return {
         ...campaign,
         gameImageUrl: campaign.gameImageUrl || prev?.gameImageUrl || peerImage,
-        drops: campaign.drops.map((drop) => {
+        drops: mergedDrops.map((drop) => {
           const prevDrop = progressByDrop.get(drop.id);
           if (!prevDrop) {
             return {

@@ -207,6 +207,98 @@ router.get("/admin/miners", requireAdmin, (_req, res) => {
   res.json({ miners: minerManager.getAdminUserMinersOverview() });
 });
 
+function parseTargetUserId(raw: string | string[] | undefined): number | null {
+  const value = Array.isArray(raw) ? raw[0] : raw;
+  const userId = Number(value);
+  return Number.isFinite(userId) && userId > 0 ? userId : null;
+}
+
+async function requireLinkedTargetUser(userId: number): Promise<string | null> {
+  const overview = minerManager.getAdminUserMinerOverview(userId);
+  if (!overview) return "User not found";
+  if (!overview.twitchLinked) return "Twitch not linked for this user";
+  return null;
+}
+
+router.post("/admin/miners/:userId/reload", requireAdmin, async (req, res) => {
+  const userId = parseTargetUserId(req.params.userId);
+  if (userId === null) {
+    res.status(400).json({ error: "Invalid user id" });
+    return;
+  }
+  const linkError = await requireLinkedTargetUser(userId);
+  if (linkError) {
+    res.status(400).json({ error: linkError });
+    return;
+  }
+  try {
+    await minerManager.reload(userId);
+    res.json({ ok: true, miner: minerManager.getAdminUserMinerOverview(userId) });
+  } catch (err) {
+    res.status(500).json({ error: err instanceof Error ? err.message : "Failed to reload miner" });
+  }
+});
+
+router.post("/admin/miners/:userId/campaigns/refresh", requireAdmin, async (req, res) => {
+  const userId = parseTargetUserId(req.params.userId);
+  if (userId === null) {
+    res.status(400).json({ error: "Invalid user id" });
+    return;
+  }
+  const linkError = await requireLinkedTargetUser(userId);
+  if (linkError) {
+    res.status(400).json({ error: linkError });
+    return;
+  }
+  try {
+    await minerManager.refreshCampaignSummaries(userId);
+    res.json({ ok: true, miner: minerManager.getAdminUserMinerOverview(userId) });
+  } catch (err) {
+    res.status(500).json({ error: err instanceof Error ? err.message : "Failed to refresh campaigns" });
+  }
+});
+
+router.post("/admin/miners/:userId/start", requireAdmin, async (req, res) => {
+  const userId = parseTargetUserId(req.params.userId);
+  if (userId === null) {
+    res.status(400).json({ error: "Invalid user id" });
+    return;
+  }
+  const overview = minerManager.getAdminUserMinerOverview(userId);
+  if (!overview) {
+    res.status(404).json({ error: "User not found" });
+    return;
+  }
+  if (!overview.twitchLinked) {
+    res.status(400).json({ error: "Twitch not linked for this user" });
+    return;
+  }
+  try {
+    await minerManager.ensureRunning(userId);
+    res.json({ ok: true, miner: minerManager.getAdminUserMinerOverview(userId) });
+  } catch (err) {
+    res.status(500).json({ error: err instanceof Error ? err.message : "Failed to start miner" });
+  }
+});
+
+router.post("/admin/miners/:userId/stop", requireAdmin, async (req, res) => {
+  const userId = parseTargetUserId(req.params.userId);
+  if (userId === null) {
+    res.status(400).json({ error: "Invalid user id" });
+    return;
+  }
+  if (!minerManager.getAdminUserMinerOverview(userId)) {
+    res.status(404).json({ error: "User not found" });
+    return;
+  }
+  try {
+    await minerManager.stop(userId);
+    res.json({ ok: true, miner: minerManager.getAdminUserMinerOverview(userId) });
+  } catch (err) {
+    res.status(500).json({ error: err instanceof Error ? err.message : "Failed to stop miner" });
+  }
+});
+
 router.post("/users", requireAdmin, async (req, res) => {
   const { username, passwordType, password } = req.body as {
     username?: string;
