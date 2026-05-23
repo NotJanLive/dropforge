@@ -151,8 +151,8 @@ export function CampaignsPage() {
   }
 
   return (
-    <DashboardPage>
-      <div className="mb-4 shrink-0 space-y-4">
+    <DashboardPage className="gap-4">
+      <div className="shrink-0 space-y-4">
         <div className="flex flex-wrap items-start justify-between gap-3 sm:gap-4">
           <div className="min-w-0 flex-1">
             <h1 className="text-xl font-semibold sm:text-2xl">Drop lists</h1>
@@ -197,34 +197,36 @@ export function CampaignsPage() {
         <ActionFeedback feedback={feedback} />
       </div>
 
-      <DashboardScrollArea className="space-y-4 sm:space-y-6 pb-2">
-        <DropListsEditor
-          games={games}
-          priorityGames={priorityGames}
-          excludeGames={excludeGames}
-          priorityMode={priorityMode}
-          onPriorityGamesChange={(g) => {
-            setPriorityGames(g);
-            markDirty();
-          }}
-          onExcludeGamesChange={(g) => {
-            setExcludeGames(g);
-            markDirty();
-          }}
-          onPriorityModeChange={(m) => {
-            setPriorityMode(m);
-            markDirty();
-          }}
-        />
+      <DashboardScrollArea className="flex flex-col gap-4 pb-2 sm:gap-6 lg:min-h-0 lg:flex-1 lg:overflow-hidden">
+        <div className="shrink-0">
+          <DropListsEditor
+            games={games}
+            priorityGames={priorityGames}
+            excludeGames={excludeGames}
+            priorityMode={priorityMode}
+            onPriorityGamesChange={(g) => {
+              setPriorityGames(g);
+              markDirty();
+            }}
+            onExcludeGamesChange={(g) => {
+              setExcludeGames(g);
+              markDirty();
+            }}
+            onPriorityModeChange={(m) => {
+              setPriorityMode(m);
+              markDirty();
+            }}
+          />
+        </div>
 
-        <Card>
-          <CardHeader className="pb-3">
+        <Card className="flex min-h-0 flex-col lg:flex-1 lg:overflow-hidden">
+          <CardHeader className="shrink-0 pb-3">
             <CardTitle className="text-base">Available games</CardTitle>
             <CardDescription>
               {games.length} games with drop campaigns on Twitch (read-only overview)
             </CardDescription>
           </CardHeader>
-          <CardContent className="pt-0">
+          <CardContent className="pt-0 lg:min-h-0 lg:flex-1 lg:overflow-y-auto lg:pr-1">
             <div className="grid gap-2 pb-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
               {games.map((g) => {
                 const inPriority = priorityGames.includes(g.name);

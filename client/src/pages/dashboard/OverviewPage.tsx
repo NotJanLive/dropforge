@@ -158,8 +158,8 @@ export function OverviewPage() {
         </div>
       </div>
 
-      <DashboardScrollArea className="space-y-4 pb-2 lg:min-h-0 lg:flex-1 lg:overflow-hidden">
-        <div className="grid gap-3 sm:grid-cols-2 sm:gap-4 md:grid-cols-3">
+      <DashboardScrollArea className="space-y-4 pb-2 lg:flex lg:min-h-0 lg:flex-1 lg:flex-col lg:overflow-hidden">
+        <div className="grid shrink-0 gap-3 sm:grid-cols-2 sm:gap-4 md:grid-cols-3">
           <StatCard icon={Activity} label="Status" value={live?.state ?? "—"} />
           <StatCard icon={Radio} label="Watching" value={live?.watchingChannel ?? "None"} />
           <StatCard
@@ -169,11 +169,12 @@ export function OverviewPage() {
           />
         </div>
 
-        <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_300px] lg:min-h-full lg:items-stretch">
-        <div className="order-1 flex min-w-0 flex-col gap-4 lg:min-h-0 lg:overflow-hidden">
+        <div className="grid gap-4 lg:min-h-0 lg:flex-1 lg:grid-cols-[minmax(0,1fr)_300px]">
+        <div className="order-1 flex min-w-0 flex-col gap-4 lg:min-h-0 lg:flex-1 lg:overflow-hidden">
           <Card
             className={cn(
-              "flex flex-col border-primary/25 lg:min-h-0 lg:flex-1 lg:overflow-hidden",
+              "flex flex-col border-primary/25",
+              mining && "lg:min-h-0 lg:flex-1 lg:overflow-hidden",
               live?.state === "IDLE" && "border-border/60"
             )}
           >
@@ -197,7 +198,12 @@ export function OverviewPage() {
                 </div>
               )}
             </CardHeader>
-            <CardContent className="flex flex-col gap-4 pt-0 lg:min-h-0 lg:flex-1 lg:overflow-hidden">
+            <CardContent
+              className={cn(
+                "flex flex-col gap-4 pt-0",
+                mining && "lg:min-h-0 lg:flex-1 lg:overflow-hidden"
+              )}
+            >
             {twitchLinked === false ? (
               <div className="py-10 text-center">
                 <p className="text-sm text-muted-foreground">
@@ -273,7 +279,7 @@ export function OverviewPage() {
                   </div>
                 </div>
 
-                <div className="grid gap-4 border-t border-border/60 pt-3 sm:grid-cols-2 lg:min-h-0 lg:flex-1">
+                <div className="grid gap-4 border-t border-border/60 pt-3 sm:grid-cols-2 lg:min-h-0 lg:flex-1 lg:grid-rows-1 lg:overflow-hidden">
                   <DropListColumn
                     title="Claimed"
                     emptyText="No drops claimed yet"
@@ -326,15 +332,17 @@ export function OverviewPage() {
           </Card>
         </div>
 
-        <ChannelsPanel
-          className="order-2"
-          channels={channels}
-          watchingChannel={live?.watchingChannel ?? null}
-          switching={switching}
-          focusedGameName={live?.focusedGameName ?? null}
-          focusedCampaignName={live?.focusedCampaignName ?? null}
-          onSwitch={switchTo}
-        />
+        <div className="order-2 relative min-h-0">
+          <ChannelsPanel
+            className="lg:absolute lg:inset-0 lg:flex lg:h-full lg:min-h-0 lg:flex-col lg:overflow-hidden"
+            channels={channels}
+            watchingChannel={live?.watchingChannel ?? null}
+            switching={switching}
+            focusedGameName={live?.focusedGameName ?? null}
+            focusedCampaignName={live?.focusedCampaignName ?? null}
+            onSwitch={switchTo}
+          />
+        </div>
         </div>
       </DashboardScrollArea>
     </DashboardPage>
@@ -407,8 +415,8 @@ function ChannelsPanel({
   onSwitch: (login: string) => void;
 }) {
   return (
-    <Card className={cn("flex min-h-[280px] flex-col overflow-hidden lg:h-full lg:min-h-0", className)}>
-      <CardHeader className="pb-3 shrink-0">
+    <Card className={cn("flex min-h-0 flex-col", className)}>
+      <CardHeader className="shrink-0 pb-3">
         <CardTitle className="text-base">Channels</CardTitle>
         <CardDescription>
           {focusedGameName
@@ -416,7 +424,7 @@ function ChannelsPanel({
             : "Manual switch · drops-enabled first"}
         </CardDescription>
       </CardHeader>
-      <CardContent className="space-y-2 flex-1 min-h-0 overflow-y-auto pt-0">
+      <CardContent className="space-y-2 pt-0 lg:min-h-0 lg:flex-1 lg:overflow-y-auto lg:pr-1">
         {channels.length === 0 && (
           <p className="text-xs text-muted-foreground py-2">No channels loaded yet.</p>
         )}
@@ -481,14 +489,9 @@ function DropListColumn({
 }) {
   const gameImg = resolveGameImageUrl({ gameImageUrl, gameName });
   return (
-    <div className="flex h-full min-h-0 min-w-0 flex-col gap-2.5">
+    <div className="flex min-h-0 min-w-0 flex-col gap-2.5 lg:h-full lg:overflow-hidden">
       <p className="shrink-0 text-sm font-medium text-muted-foreground">{title}</p>
-      <div
-        className={cn(
-          "min-h-0 space-y-2 overflow-y-auto pr-1",
-          drops.length > 0 && "flex-1"
-        )}
-      >
+      <div className="space-y-2 lg:min-h-0 lg:flex-1 lg:overflow-y-auto lg:pr-1">
         {drops.length === 0 && <p className="text-xs text-muted-foreground">{emptyText}</p>}
         {drops.map((drop) => (
           <div
