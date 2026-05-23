@@ -220,6 +220,8 @@ export interface MinerLogEntry {
   message: string;
 }
 
+export const MAX_MINER_LOGS = 150;
+
 export interface CampaignSummary {
   id: string;
   name: string;

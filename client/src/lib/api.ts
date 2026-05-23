@@ -1,3 +1,13 @@
+export interface AdminUserMinerView {
+  userId: number;
+  username: string;
+  setupComplete: boolean;
+  twitchLinked: boolean;
+  twitchLogin: string | null;
+  minerRunning: boolean;
+  status: MinerStatus;
+}
+
 export interface AuthUser {
   id: number;
   username: string;
@@ -161,6 +171,7 @@ export const api = {
   finishUserSetup: () =>
     request<{ ok: boolean }>("/api/auth/setup/user/finish", { method: "POST" }),
   listUsers: () => request<{ users: AuthUser[] }>("/api/auth/users"),
+  adminMiners: () => request<{ miners: AdminUserMinerView[] }>("/api/auth/admin/miners"),
   createUser: (body: { username: string; passwordType: "temporary" | "permanent"; password?: string }) =>
     request<{
       ok: boolean;

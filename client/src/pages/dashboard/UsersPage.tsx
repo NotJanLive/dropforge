@@ -197,22 +197,22 @@ export function UsersPage() {
       <div className="grid gap-3">
         {users.filter((u) => u.role === "user").map((u) => (
           <Card key={u.id}>
-            <CardContent className="pt-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-              <div>
-                <p className="font-medium">{u.username}</p>
-                <p className="text-sm text-muted-foreground">
+            <CardContent className="flex flex-col gap-4 p-4 sm:flex-row sm:items-center sm:justify-between sm:p-5">
+              <div className="min-w-0 flex flex-col justify-center gap-0.5">
+                <p className="font-medium leading-snug">{u.username}</p>
+                <p className="text-sm leading-relaxed text-muted-foreground">
                   {u.setupComplete ? "Setup complete" : `Setup step ${u.setupStep}`}
                   {u.mustChangePassword && " · Must change password"}
                   {u.passwordMode === "permanent" && !u.canRevealPassword && " · Permanent password"}
                   {u.passwordMode === "user" && " · Password set by user"}
                 </p>
                 {revealed[u.id] && (
-                  <p className="text-sm mt-2">
+                  <p className="mt-1 text-sm leading-snug">
                     Password: <code className="text-primary">{revealed[u.id]}</code>
                   </p>
                 )}
               </div>
-              <div className="flex flex-wrap gap-2">
+              <div className="flex shrink-0 flex-wrap gap-2 sm:justify-end">
                 {u.canRevealPassword && (
                   <Button variant="outline" size="sm" onClick={() => reveal(u.id)}>
                     Show password

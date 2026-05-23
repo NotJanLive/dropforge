@@ -203,6 +203,10 @@ router.get("/users", requireAdmin, (_req, res) => {
   res.json({ users: list });
 });
 
+router.get("/admin/miners", requireAdmin, (_req, res) => {
+  res.json({ miners: minerManager.getAdminUserMinersOverview() });
+});
+
 router.post("/users", requireAdmin, async (req, res) => {
   const { username, passwordType, password } = req.body as {
     username?: string;

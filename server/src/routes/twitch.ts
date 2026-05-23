@@ -9,7 +9,7 @@ import {
   pollTwitchLink,
   unlinkTwitch,
 } from "../twitch/session.js";
-import { minerManager, parseJsonArray, createUnlinkedMinerStatus } from "../miner/manager.js";
+import { minerManager, parseJsonArray, createUnlinkedMinerStatus, loadMinerLogs } from "../miner/manager.js";
 import type { CampaignInfo } from "../miner/constants.js";
 
 const router = Router();
@@ -155,7 +155,7 @@ router.get("/miner/status", requireUser, async (req, res) => {
   const user = (req as typeof req & { currentUser: { id: number } }).currentUser;
   const session = await getTwitchSession(user.id);
   if (!session) {
-    res.json({ status: createUnlinkedMinerStatus(), twitchLinked: false });
+    res.json({ status: createUnlinkedMinerStatus(loadMinerLogs(user.id)), twitchLinked: false });
     return;
   }
 
@@ -166,7 +166,7 @@ router.get("/miner/status", requireUser, async (req, res) => {
   }
   await minerManager.ensureRunning(user.id).catch(() => undefined);
   res.json({
-    status: minerManager.getStatus(user.id) ?? createUnlinkedMinerStatus(),
+    status: minerManager.getStatus(user.id) ?? createUnlinkedMinerStatus(loadMinerLogs(user.id)),
     twitchLinked: true,
   });
 });

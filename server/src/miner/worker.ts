@@ -13,6 +13,7 @@ import {
   CHANNEL_REFRESH_MS,
   LOOP_INTERVAL_MS,
   INVENTORY_MAINTENANCE_MS,
+  MAX_MINER_LOGS,
 } from "./constants.js";
 import { PubSubPool, userTopics, channelTopics } from "./pubsub.js";
 import {
@@ -51,8 +52,7 @@ export interface MinerSettings {
 
 type StatusCallback = (userId: number, status: MinerStatus) => void;
 type SettingsPersistCallback = (partial: Partial<MinerSettings>) => void;
-
-const MAX_LOGS = 150;
+type LogsPersistCallback = (logs: MinerLogEntry[]) => void;
 
 function asRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" ? (value as Record<string, unknown>) : {};
@@ -98,9 +98,12 @@ export class MinerWorker {
     private auth: TwitchAuthSession,
     settings: MinerSettings,
     private onStatus: StatusCallback,
-    private onSettingsPersist: SettingsPersistCallback = () => undefined
+    private onSettingsPersist: SettingsPersistCallback = () => undefined,
+    initialLogs: MinerLogEntry[] = [],
+    private onLogsPersist: LogsPersistCallback = () => undefined
   ) {
     this.settings = { ...settings };
+    this.logs = [...initialLogs];
   }
 
   /** Switch focused campaign (pinned until finished, or null for priority auto). */
@@ -400,7 +403,8 @@ export class MinerWorker {
     this.logs = [
       { time: new Date().toISOString(), level, message },
       ...this.logs,
-    ].slice(0, MAX_LOGS);
+    ].slice(0, MAX_MINER_LOGS);
+    this.onLogsPersist(this.logs);
   }
 
   private emit() {

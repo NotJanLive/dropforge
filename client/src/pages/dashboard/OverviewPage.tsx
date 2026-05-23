@@ -17,6 +17,7 @@ import { TwitchImage } from "@/components/TwitchImage";
 import { resolveGameImageUrl } from "@/lib/gameImage";
 import { cn } from "@/lib/utils";
 import { DashboardPage, DashboardScrollArea } from "@/components/DashboardPage";
+import { AdminMinersOverview } from "@/components/AdminMinersOverview";
 
 export function OverviewPage() {
   const { user } = useAuth();
@@ -89,11 +90,8 @@ export function OverviewPage() {
 
   if (user?.role === "admin") {
     return (
-      <DashboardPage>
-        <div className="shrink-0">
-          <h1 className="text-2xl font-semibold">Overview</h1>
-          <p className="text-muted-foreground">Manage users and global miner settings from the sidebar.</p>
-        </div>
+      <DashboardPage className="gap-4">
+        <AdminMinersOverview />
       </DashboardPage>
     );
   }
@@ -319,7 +317,7 @@ export function OverviewPage() {
             <CardContent className="pt-0">
               <div
                 ref={logRef}
-                className="h-48 overflow-y-auto rounded-lg border border-border/60 bg-black/40 p-3 font-mono text-xs space-y-1 lg:h-56"
+                className="min-h-[10rem] max-h-56 overflow-y-auto rounded-lg border border-border/60 bg-black/40 p-3 font-mono text-xs space-y-1 dashboard-scroll lg:max-h-64"
               >
                 {(live?.logs ?? []).map((entry, i) => (
                   <LogLine key={`${entry.time}-${i}`} entry={entry} />

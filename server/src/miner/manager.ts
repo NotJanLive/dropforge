@@ -3,7 +3,8 @@ import { db } from "../db/index.js";
 import { twitchSessions, userMinerSettings, users } from "../db/schema.js";
 import { getTwitchSession } from "../twitch/session.js";
 import { MinerWorker, type MinerSettings } from "./worker.js";
-import type { MinerStatus } from "./constants.js";
+import type { MinerStatus, MinerLogEntry } from "./constants.js";
+import { MAX_MINER_LOGS } from "./constants.js";
 
 type BroadcastFn = (userId: number, status: MinerStatus) => void;
 
@@ -14,6 +15,55 @@ export function parseJsonArray(value: string): string[] {
   } catch {
     return [];
   }
+}
+
+const LOG_LEVELS = new Set<MinerLogEntry["level"]>(["info", "warn", "error", "success"]);
+
+export function loadMinerLogs(userId: number): MinerLogEntry[] {
+  const row = db.select().from(userMinerSettings).where(eq(userMinerSettings.userId, userId)).get();
+  if (!row?.minerLogs) return [];
+  try {
+    const parsed = JSON.parse(row.minerLogs);
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .filter(
+        (entry): entry is MinerLogEntry =>
+          Boolean(entry) &&
+          typeof entry === "object" &&
+          typeof (entry as MinerLogEntry).time === "string" &&
+          typeof (entry as MinerLogEntry).message === "string" &&
+          LOG_LEVELS.has((entry as MinerLogEntry).level)
+      )
+      .slice(0, MAX_MINER_LOGS);
+  } catch {
+    return [];
+  }
+}
+
+function persistMinerLogs(userId: number, logs: MinerLogEntry[]) {
+  const now = new Date().toISOString();
+  const payload = JSON.stringify(logs.slice(0, MAX_MINER_LOGS));
+  const existing = db.select().from(userMinerSettings).where(eq(userMinerSettings.userId, userId)).get();
+
+  if (existing) {
+    db.update(userMinerSettings)
+      .set({ minerLogs: payload, updatedAt: now })
+      .where(eq(userMinerSettings.userId, userId))
+      .run();
+    return;
+  }
+
+  db.insert(userMinerSettings).values({
+    userId,
+    priorityMode: "PRIORITY_ONLY",
+    priorityGames: "[]",
+    excludeGames: "[]",
+    selectedCampaigns: "[]",
+    manualChannelLogin: null,
+    activeCampaignId: null,
+    minerLogs: payload,
+    updatedAt: now,
+  }).run();
 }
 
 function loadSettings(userId: number): MinerSettings {
@@ -46,7 +96,7 @@ function mergeSettings(before: MinerSettings, partial: Partial<MinerSettings>): 
   return merged;
 }
 
-export function createUnlinkedMinerStatus(): MinerStatus {
+export function createUnlinkedMinerStatus(logs: MinerLogEntry[] = []): MinerStatus {
   return {
     state: "STOPPED",
     message: "Twitch account not linked — link your account in Settings to start mining",
@@ -56,7 +106,7 @@ export function createUnlinkedMinerStatus(): MinerStatus {
     activeMining: null,
     campaigns: [],
     channels: [],
-    logs: [],
+    logs,
     websocketConnections: 0,
     lastWatchAt: null,
     updatedAt: new Date().toISOString(),
@@ -125,6 +175,7 @@ export class MinerManager {
     const auth = await getTwitchSession(userId);
     if (!auth) return;
     const settings = loadSettings(userId);
+    const logs = loadMinerLogs(userId);
     const worker = new MinerWorker(
       userId,
       auth,
@@ -134,6 +185,10 @@ export class MinerManager {
       },
       (partial) => {
         this.persistSettingsPartial(userId, partial);
+      },
+      logs,
+      (nextLogs) => {
+        persistMinerLogs(userId, nextLogs);
       }
     );
     this.workers.set(userId, worker);
@@ -253,6 +308,55 @@ export class MinerManager {
     if (ids.length === 0) return;
     console.log(`Starting miners for ${ids.length} user(s) with linked Twitch…`);
     await Promise.all(ids.map((id) => this.ensureRunning(id).catch(() => undefined)));
+  }
+
+  private buildFallbackStatus(
+    userId: number,
+    setupComplete: boolean,
+    twitchLinked: boolean
+  ): MinerStatus {
+    const logs = loadMinerLogs(userId);
+    const base = createUnlinkedMinerStatus(logs);
+    if (!setupComplete) {
+      return { ...base, state: "STOPPED", message: "User setup incomplete" };
+    }
+    if (!twitchLinked) {
+      return { ...base, state: "STOPPED", message: "Twitch not linked" };
+    }
+    return { ...base, state: "STOPPED", message: "Miner not running" };
+  }
+
+  getAdminUserMinersOverview() {
+    const userRows = db
+      .select({
+        id: users.id,
+        username: users.username,
+        setupComplete: users.setupComplete,
+      })
+      .from(users)
+      .where(eq(users.role, "user"))
+      .all();
+
+    return userRows.map((u) => {
+      const twitch = db
+        .select({ login: twitchSessions.twitchLogin })
+        .from(twitchSessions)
+        .where(eq(twitchSessions.userId, u.id))
+        .get();
+      const twitchLinked = Boolean(twitch);
+      const status =
+        this.getStatus(u.id) ?? this.buildFallbackStatus(u.id, u.setupComplete, twitchLinked);
+
+      return {
+        userId: u.id,
+        username: u.username,
+        setupComplete: u.setupComplete,
+        twitchLinked,
+        twitchLogin: twitch?.login ?? null,
+        minerRunning: this.workers.has(u.id),
+        status,
+      };
+    });
   }
 }
 

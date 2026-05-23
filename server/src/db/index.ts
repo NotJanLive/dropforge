@@ -93,6 +93,7 @@ export function initDb() {
       selected_campaigns TEXT NOT NULL DEFAULT '[]',
       active_campaign_id TEXT,
       manual_channel_login TEXT,
+      miner_logs TEXT NOT NULL DEFAULT '[]',
       updated_at TEXT NOT NULL
     );
     CREATE TABLE IF NOT EXISTS device_auth_sessions (
@@ -135,6 +136,11 @@ function migrateDb() {
   }
   try {
     sqlite!.run(`ALTER TABLE user_miner_settings ADD COLUMN active_campaign_id TEXT`);
+  } catch {
+    /* column already exists */
+  }
+  try {
+    sqlite!.run(`ALTER TABLE user_miner_settings ADD COLUMN miner_logs TEXT NOT NULL DEFAULT '[]'`);
   } catch {
     /* column already exists */
   }
