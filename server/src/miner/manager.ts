@@ -326,6 +326,40 @@ export class MinerManager {
     return { ...base, state: "STOPPED", message: "Miner not running" };
   }
 
+  getAdminUserMinerOverview(userId: number) {
+    const u = db
+      .select({
+        id: users.id,
+        username: users.username,
+        setupComplete: users.setupComplete,
+        role: users.role,
+      })
+      .from(users)
+      .where(eq(users.id, userId))
+      .get();
+
+    if (!u || u.role !== "user") return null;
+
+    const twitch = db
+      .select({ login: twitchSessions.twitchLogin })
+      .from(twitchSessions)
+      .where(eq(twitchSessions.userId, u.id))
+      .get();
+    const twitchLinked = Boolean(twitch);
+    const status =
+      this.getStatus(u.id) ?? this.buildFallbackStatus(u.id, u.setupComplete, twitchLinked);
+
+    return {
+      userId: u.id,
+      username: u.username,
+      setupComplete: u.setupComplete,
+      twitchLinked,
+      twitchLogin: twitch?.login ?? null,
+      minerRunning: this.workers.has(u.id),
+      status,
+    };
+  }
+
   getAdminUserMinersOverview() {
     const userRows = db
       .select({
@@ -337,26 +371,9 @@ export class MinerManager {
       .where(eq(users.role, "user"))
       .all();
 
-    return userRows.map((u) => {
-      const twitch = db
-        .select({ login: twitchSessions.twitchLogin })
-        .from(twitchSessions)
-        .where(eq(twitchSessions.userId, u.id))
-        .get();
-      const twitchLinked = Boolean(twitch);
-      const status =
-        this.getStatus(u.id) ?? this.buildFallbackStatus(u.id, u.setupComplete, twitchLinked);
-
-      return {
-        userId: u.id,
-        username: u.username,
-        setupComplete: u.setupComplete,
-        twitchLinked,
-        twitchLogin: twitch?.login ?? null,
-        minerRunning: this.workers.has(u.id),
-        status,
-      };
-    });
+    return userRows
+      .map((u) => this.getAdminUserMinerOverview(u.id))
+      .filter((entry): entry is NonNullable<typeof entry> => entry !== null);
   }
 }
 

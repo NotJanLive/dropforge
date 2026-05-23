@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { Activity, ChevronDown, Radio, RefreshCw, Terminal, User } from "lucide-react";
+import { Activity, ChevronDown, Loader2, Play, Radio, RefreshCw, Square, Terminal, User } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
@@ -11,6 +11,93 @@ import { cn } from "@/lib/utils";
 import { DashboardScrollArea } from "@/components/DashboardPage";
 
 const POLL_MS = 5000;
+
+type AdminMinerAction = "reload" | "campaigns" | "start" | "stop";
+
+function AdminMinerControls({
+  miner,
+  busyAction,
+  actionError,
+  onAction,
+}: {
+  miner: AdminUserMinerView;
+  busyAction: AdminMinerAction | null;
+  actionError?: string;
+  onAction: (action: AdminMinerAction) => void;
+}) {
+  const disabled = busyAction !== null;
+
+  return (
+    <div className="space-y-2">
+      <p className="text-sm font-medium text-muted-foreground">Admin actions</p>
+      <div className="flex flex-wrap gap-2">
+        <Button
+          type="button"
+          size="sm"
+          variant="outline"
+          disabled={disabled || !miner.twitchLinked}
+          onClick={() => onAction("campaigns")}
+        >
+          {busyAction === "campaigns" ? (
+            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+          ) : (
+            <RefreshCw className="mr-2 h-4 w-4" />
+          )}
+          Refresh campaigns
+        </Button>
+        <Button
+          type="button"
+          size="sm"
+          variant="outline"
+          disabled={disabled || !miner.twitchLinked}
+          onClick={() => onAction("reload")}
+        >
+          {busyAction === "reload" ? (
+            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+          ) : (
+            <RefreshCw className="mr-2 h-4 w-4" />
+          )}
+          Reload miner
+        </Button>
+        {!miner.minerRunning ? (
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            disabled={disabled || !miner.twitchLinked || !miner.setupComplete}
+            onClick={() => onAction("start")}
+          >
+            {busyAction === "start" ? (
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+            ) : (
+              <Play className="mr-2 h-4 w-4" />
+            )}
+            Start miner
+          </Button>
+        ) : (
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            disabled={disabled}
+            onClick={() => onAction("stop")}
+          >
+            {busyAction === "stop" ? (
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+            ) : (
+              <Square className="mr-2 h-4 w-4" />
+            )}
+            Stop miner
+          </Button>
+        )}
+      </div>
+      {!miner.twitchLinked && (
+        <p className="text-xs text-muted-foreground">Link Twitch on the user account to enable miner actions.</p>
+      )}
+      {actionError && <p className="text-xs text-red-400">{actionError}</p>}
+    </div>
+  );
+}
 
 function stateBadgeClass(state: string): string {
   switch (state) {
@@ -48,11 +135,17 @@ function MinerLogLine({ entry }: { entry: MinerLogEntry }) {
 function AdminUserMinerCard({
   miner,
   expanded,
+  busyAction,
+  actionError,
   onToggle,
+  onAction,
 }: {
   miner: AdminUserMinerView;
   expanded: boolean;
+  busyAction: AdminMinerAction | null;
+  actionError?: string;
   onToggle: () => void;
+  onAction: (action: AdminMinerAction) => void;
 }) {
   const mining = miner.status.activeMining;
   const dropRemainingSec = useWatchRemainingSeconds(
@@ -138,6 +231,13 @@ function AdminUserMinerCard({
 
       {expanded && (
         <CardContent className="space-y-4 border-t border-border/60 p-4 pt-4 sm:p-6 sm:pt-4">
+          <AdminMinerControls
+            miner={miner}
+            busyAction={busyAction}
+            actionError={actionError}
+            onAction={onAction}
+          />
+
           {mining ? (
             <div className="grid gap-4 xl:grid-cols-2">
               <div className="space-y-3 rounded-lg border border-border/60 p-3">
@@ -296,6 +396,41 @@ export function AdminMinersOverview() {
   const [error, setError] = useState<string | null>(null);
   const [expandedUserId, setExpandedUserId] = useState<number | null>(null);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
+  const [busy, setBusy] = useState<{ userId: number; action: AdminMinerAction } | null>(null);
+  const [actionErrors, setActionErrors] = useState<Record<number, string>>({});
+
+  const updateMiner = useCallback((miner: AdminUserMinerView | null) => {
+    if (!miner) return;
+    setMiners((prev) => prev.map((m) => (m.userId === miner.userId ? miner : m)));
+    setLastUpdated(new Date());
+  }, []);
+
+  const runUserAction = useCallback(async (userId: number, action: AdminMinerAction) => {
+    setBusy({ userId, action });
+    setActionErrors((prev) => {
+      const next = { ...prev };
+      delete next[userId];
+      return next;
+    });
+    try {
+      const result =
+        action === "reload"
+          ? await api.adminReloadMiner(userId)
+          : action === "campaigns"
+            ? await api.adminRefreshCampaigns(userId)
+            : action === "start"
+              ? await api.adminStartMiner(userId)
+              : await api.adminStopMiner(userId);
+      updateMiner(result.miner);
+    } catch (err) {
+      setActionErrors((prev) => ({
+        ...prev,
+        [userId]: err instanceof Error ? err.message : "Action failed",
+      }));
+    } finally {
+      setBusy(null);
+    }
+  }, [updateMiner]);
 
   const load = useCallback(async (manual = false) => {
     if (manual) setRefreshing(true);
@@ -383,9 +518,14 @@ export function AdminMinersOverview() {
             key={miner.userId}
             miner={miner}
             expanded={expandedUserId === miner.userId}
+            busyAction={busy?.userId === miner.userId ? busy.action : null}
+            actionError={actionErrors[miner.userId]}
             onToggle={() =>
               setExpandedUserId((current) => (current === miner.userId ? null : miner.userId))
             }
+            onAction={(action) => {
+              void runUserAction(miner.userId, action);
+            }}
           />
         ))}
     </DashboardScrollArea>
