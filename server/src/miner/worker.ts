@@ -525,8 +525,24 @@ export class MinerWorker {
     const dropId = this.currentDrop?.dropId;
     if (!dropId) return;
     const found = findDropInCampaigns(this.allCampaigns, dropId);
-    if (found && dropCanClaim(found.drop, found.campaign) && !found.drop.isClaimed) {
+    if (!found || found.drop.isClaimed) return;
+
+    // Check if drop can be claimed based on canClaim flag or currentMinutes >= requiredMinutes
+    if (dropCanClaim(found.drop, found.campaign)) {
       void this.onDropWatchComplete(dropId, found.drop.claimId);
+      return;
+    }
+
+    // Additional check: if we're at req-1 minutes and have been watching for more than 90 seconds since last update
+    const req = found.drop.requiredMinutes;
+    const current = found.drop.currentMinutes;
+    if (req > 0 && current >= req - 1 && this.lastWatchAt) {
+      const watchElapsedMs = Date.now() - new Date(this.lastWatchAt).getTime();
+      // If we've been stuck at req-1 minutes for more than 90 seconds, try to claim
+      if (watchElapsedMs > 90_000) {
+        this.addLog("info", `Drop appears complete (${current}/${req} min, ${Math.floor(watchElapsedMs / 1000)}s elapsed) — attempting claim`);
+        void this.onDropWatchComplete(dropId, found.drop.claimId);
+      }
     }
   }
 
@@ -1464,11 +1480,22 @@ export class MinerWorker {
       if (!this.watchingMatches(login)) return;
 
       const newMinutes = this.currentDrop?.currentMinutes ?? -1;
+      const req = this.currentDrop?.requiredMinutes ?? 0;
+
+      // Check if drop is complete (watch time reached or exceeded)
+      if (req > 0 && newMinutes >= req && this.currentDrop?.dropId) {
+        const found = findDropInCampaigns(this.allCampaigns, this.currentDrop.dropId);
+        if (found && !found.drop.isClaimed) {
+          void this.onDropWatchComplete(this.currentDrop.dropId);
+          this.emit();
+          return;
+        }
+      }
+
       if (newMinutes > prevMinutes) {
         this.lastWatchAt = new Date().toISOString();
         this.lastWatchMinutes = newMinutes;
         this.consecutiveStallTicks = 0;
-        const req = this.currentDrop?.requiredMinutes ?? 0;
         this.addLog(
           "success",
           `Watch minute credited: ${this.currentDrop?.dropName ?? "drop"} (${newMinutes}/${req})`
@@ -1477,11 +1504,17 @@ export class MinerWorker {
         this.lastWatchAt = new Date().toISOString();
         this.lastWatchMinutes = newMinutes >= 0 ? newMinutes : null;
       } else if (newMinutes === prevMinutes && prevMinutes >= 0) {
-        const req = this.currentDrop?.requiredMinutes ?? 0;
-        if (req > 0 && newMinutes >= req && this.currentDrop?.dropId) {
-          void this.onDropWatchComplete(this.currentDrop.dropId);
-          this.emit();
-          return;
+        // Drop watch time is complete, try to claim even if Twitch hasn't updated the minute counter yet
+        if (req > 0 && newMinutes >= req - 1 && this.currentDrop?.dropId) {
+          const found = findDropInCampaigns(this.allCampaigns, this.currentDrop.dropId);
+          // If we're at req-1 minutes and have been watching for more than 65 seconds, try to claim
+          const watchElapsedMs = this.lastWatchAt ? Date.now() - new Date(this.lastWatchAt).getTime() : 0;
+          if (found && !found.drop.isClaimed && watchElapsedMs > 65_000) {
+            this.addLog("info", `Watch time complete (${newMinutes}/${req} min) — attempting claim`);
+            void this.onDropWatchComplete(this.currentDrop.dropId);
+            this.emit();
+            return;
+          }
         }
         const inGrace = Date.now() < this.watchGraceUntil;
         if (spade.ok && inGrace) {

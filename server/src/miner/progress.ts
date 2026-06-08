@@ -189,7 +189,8 @@ export function applySequentialDropProgress(
         }
       }
     }
-    if (active.requiredMinutes > 0 && active.currentMinutes >= active.requiredMinutes) {
+    // Mark as claimable if we reached the required minutes OR are within 1 minute and isComplete
+    if (active.requiredMinutes > 0 && (active.currentMinutes >= active.requiredMinutes || (active.currentMinutes >= active.requiredMinutes - 1 && active.isComplete))) {
       active.isComplete = true;
       active.canClaim = true;
     }
@@ -209,7 +210,8 @@ export function applySequentialDropProgress(
   if (requiredMinutes && requiredMinutes > 0) {
     active.requiredMinutes = requiredMinutes;
   }
-  if (active.requiredMinutes > 0 && active.currentMinutes >= active.requiredMinutes) {
+  // Mark as claimable if we reached the required minutes OR are within 1 minute and isComplete
+  if (active.requiredMinutes > 0 && (active.currentMinutes >= active.requiredMinutes || (active.currentMinutes >= active.requiredMinutes - 1 && active.isComplete))) {
     active.isComplete = true;
     active.canClaim = true;
   }
