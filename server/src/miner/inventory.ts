@@ -590,13 +590,15 @@ export function mergeCampaignProgress(existing: CampaignInfo[], incoming: Campai
               imageUrl: drop.imageUrl || campaign.gameImageUrl || prev?.gameImageUrl || peerImage,
             };
           }
-          // Trust fresh data from Twitch API - don't preserve old cached claimed/complete status
-          // Only use cached progress if it's higher (for minute tracking)
-          const isClaimed = drop.isClaimed;
+          // Trust fresh data from Twitch API - but only if it has self edge
+          // If API doesn't provide self.isClaimed (returns false from dropClaimedFromBenefits),
+          // preserve locally tracked claimed status to avoid losing claim state across refreshes
+          const apiHasSelfEdge = drop.isClaimed === true; // If true, API definitely said claimed
+          const isClaimed = apiHasSelfEdge ? true : (drop.isClaimed || prevDrop.isClaimed);
           const currentMinutes = Math.max(drop.currentMinutes, prevDrop.currentMinutes);
           const required = drop.requiredMinutes;
           const gameImg = campaign.gameImageUrl || prev?.gameImageUrl || peerImage;
-          // isComplete should be derived from fresh data, not OR'd with old cached value
+          // isComplete should be derived from claimed status and current progress
           const isComplete = isClaimed || (required > 0 && currentMinutes >= required);
           return {
             ...drop,
