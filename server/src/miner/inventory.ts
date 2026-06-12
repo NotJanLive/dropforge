@@ -97,13 +97,18 @@ function parseCampaignFromDetail(
     campaign.timeBasedDrops ?? fallback?.timeBasedDrops
   )
     .map((d) => {
-    const self = asRecord(d.self);
+    // If CampaignDetails didn't return self edge, try to get it from fallback (Campaigns query)
+    const fallbackDrops = asArray<Record<string, unknown>>(fallback?.timeBasedDrops ?? []);
+    const fallbackDrop = fallbackDrops.find((fd) => String(fd.id) === String(d.id));
+    const self = asRecord(d.self ?? fallbackDrop?.self);
+
     const required = Number(d.requiredMinutesWatched ?? 0);
     const current = Number(self.currentMinutesWatched ?? 0);
     // Only use benefit inference when self.isClaimed is undefined (API didn't return it)
     // If self.isClaimed exists (true or false), trust it over benefit inference
     // This prevents false positives when multiple drops share the same benefit ID
-    const isClaimed = d.self && typeof d.self === 'object' && 'isClaimed' in d.self
+    const hasSelfEdge = (d.self || fallbackDrop?.self) && 'isClaimed' in self;
+    const isClaimed = hasSelfEdge
       ? Boolean(self.isClaimed)
       : dropClaimedFromBenefits(d, claimedBenefits);
     return {
