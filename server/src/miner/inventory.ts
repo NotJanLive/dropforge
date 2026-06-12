@@ -103,8 +103,12 @@ function parseCampaignFromDetail(
     const self = asRecord(d.self);
     const required = Number(d.requiredMinutesWatched ?? 0);
     const current = Number(self.currentMinutesWatched ?? 0);
-    const isClaimed =
-      Boolean(self.isClaimed) || dropClaimedFromBenefits(d, claimedBenefits);
+    // Only use benefit inference when self.isClaimed is undefined (API didn't return it)
+    // If self.isClaimed exists (true or false), trust it over benefit inference
+    // This prevents false positives when multiple drops share the same benefit ID
+    const isClaimed = d.self && typeof d.self === 'object' && 'isClaimed' in d.self
+      ? Boolean(self.isClaimed)
+      : dropClaimedFromBenefits(d, claimedBenefits);
     return {
       id: String(d.id ?? ""),
       name: String(d.name ?? ""),
