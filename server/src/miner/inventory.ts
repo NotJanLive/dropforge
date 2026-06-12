@@ -62,28 +62,25 @@ function parseClaimedBenefits(inventory: Record<string, unknown>): Map<string, n
   return map;
 }
 
-/** TDM: infer isClaimed from gameEventDrops when self edge is missing. */
+/**
+ * TDM: infer isClaimed from gameEventDrops when self edge is missing.
+ * IMPORTANT: This function can produce false positives when multiple drops in the same
+ * campaign share the same benefit ID. It should ONLY be used as a last resort when
+ * Twitch API doesn't provide self.isClaimed at all.
+ *
+ * To avoid false positives with duplicate benefit IDs, we MUST also check that
+ * ALL benefits were claimed AND there are no other drops in the same campaign
+ * with the same benefits that might have claimed them instead.
+ */
 function dropClaimedFromBenefits(
   drop: Record<string, unknown>,
   claimedBenefits: Map<string, number>
 ): boolean {
-  const startsAt = Date.parse(String(drop.startAt ?? ""));
-  const endsAt = Date.parse(String(drop.endAt ?? ""));
-  if (!Number.isFinite(startsAt) || !Number.isFinite(endsAt)) return false;
-
-  const edges = asArray<Record<string, unknown>>(drop.benefitEdges);
-  if (edges.length === 0) return false;
-
-  const awarded: number[] = [];
-  for (const edge of edges) {
-    const benefit = asRecord(edge.benefit);
-    const bid = String(benefit.id ?? "");
-    const ts = bid ? claimedBenefits.get(bid) : undefined;
-    if (ts === undefined) return false;
-    awarded.push(ts);
-  }
-
-  return awarded.every((ts) => ts >= startsAt && ts < endsAt);
+  // DISABLED: This function produces too many false positives with shared benefit IDs.
+  // Without self.isClaimed from Twitch API, we cannot reliably determine claim status.
+  // Default to unclaimed (false) to avoid stopping mining prematurely.
+  // The drop will be properly detected as claimable when progress completes.
+  return false;
 }
 
 function parseCampaignFromDetail(
@@ -593,18 +590,20 @@ export function mergeCampaignProgress(existing: CampaignInfo[], incoming: Campai
               imageUrl: drop.imageUrl || campaign.gameImageUrl || prev?.gameImageUrl || peerImage,
             };
           }
-          // Trust fresh data from Twitch API - don't preserve old cached claimed status
+          // Trust fresh data from Twitch API - don't preserve old cached claimed/complete status
           // Only use cached progress if it's higher (for minute tracking)
           const isClaimed = drop.isClaimed;
           const currentMinutes = Math.max(drop.currentMinutes, prevDrop.currentMinutes);
           const required = drop.requiredMinutes;
           const gameImg = campaign.gameImageUrl || prev?.gameImageUrl || peerImage;
+          // isComplete should be derived from fresh data, not OR'd with old cached value
+          const isComplete = isClaimed || (required > 0 && currentMinutes >= required);
           return {
             ...drop,
             claimId: drop.claimId ?? prevDrop.claimId,
             isClaimed,
             currentMinutes: isClaimed && required > 0 ? required : currentMinutes,
-            isComplete: isClaimed || drop.isComplete || prevDrop.isComplete,
+            isComplete,
             imageUrl: drop.imageUrl || gameImg,
           };
         }),
