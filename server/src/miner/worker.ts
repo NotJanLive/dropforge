@@ -527,22 +527,10 @@ export class MinerWorker {
     const found = findDropInCampaigns(this.allCampaigns, dropId);
     if (!found || found.drop.isClaimed) return;
 
-    // Check if drop can be claimed based on canClaim flag or currentMinutes >= requiredMinutes
+    // Only claim when Twitch explicitly says it's claimable (via canClaim flag or drop-claim websocket message)
+    // This prevents premature claim attempts at 599/600 minutes
     if (dropCanClaim(found.drop, found.campaign)) {
       void this.onDropWatchComplete(dropId, found.drop.claimId);
-      return;
-    }
-
-    // Additional check: if we're at req-1 minutes and have been watching for more than 90 seconds since last update
-    const req = found.drop.requiredMinutes;
-    const current = found.drop.currentMinutes;
-    if (req > 0 && current >= req - 1 && this.lastWatchAt) {
-      const watchElapsedMs = Date.now() - new Date(this.lastWatchAt).getTime();
-      // If we've been stuck at req-1 minutes for more than 90 seconds, try to claim
-      if (watchElapsedMs > 90_000) {
-        this.addLog("info", `Drop appears complete (${current}/${req} min, ${Math.floor(watchElapsedMs / 1000)}s elapsed) — attempting claim`);
-        void this.onDropWatchComplete(dropId, found.drop.claimId);
-      }
     }
   }
 
@@ -712,10 +700,36 @@ export class MinerWorker {
           }
         }
 
-        await this.syncDropProgress();
+        const hasSession = await this.syncDropProgress();
         this.consecutiveStallTicks = 0;
         this.consecutiveWatchFailures = 0;
         this.watchGraceUntil = Date.now() + 65_000;
+
+        // If Twitch returns no drop session immediately, all drops may be claimed already
+        if (!hasSession && !this.currentDrop) {
+          const focused = this.getFocusedCampaigns();
+          if (focused.length > 0 && channelMatchesCampaigns(ch, focused)) {
+            const campaign = focused[0];
+            this.addLog(
+              "info",
+              `No drop session from Twitch — all drops for "${campaign.name}" appear claimed`
+            );
+            for (const drop of campaign.drops) {
+              if (drop.requiredMinutes > 0 && !drop.isClaimed) {
+                drop.isClaimed = true;
+                drop.isComplete = true;
+                drop.canClaim = false;
+                drop.currentMinutes = drop.requiredMinutes;
+              }
+            }
+            this.watching = null;
+            this.broadcastId = null;
+            await this.afterDropClaimed("", campaign);
+            this.emit();
+            return;
+          }
+        }
+
         if (this.currentDrop) {
           this.lastWatchMinutes = this.currentDrop.currentMinutes;
         }
@@ -880,6 +894,10 @@ export class MinerWorker {
 
       await this.rebuildChannelsFromMining();
       await this.claimAllEligibleDrops();
+
+      // After claiming, refilter to remove completed campaigns
+      this.refilterMiningCampaigns();
+
       await this.syncDropProgress();
       await this.maintainWatching();
       this.lastInventoryRefresh = Date.now();
@@ -1228,10 +1246,14 @@ export class MinerWorker {
       this.addLog("info", `Claiming drop: ${drop.name} (${campaign.gameName})`);
       const ok = await claimDrop(this.auth, claimId);
       if (ok) {
+        // Mark as claimed and update progress to show completion
         drop.isClaimed = true;
         drop.isComplete = true;
         drop.canClaim = false;
-        if (drop.requiredMinutes > 0) drop.currentMinutes = drop.requiredMinutes;
+        // IMPORTANT: Set currentMinutes to requiredMinutes so UI shows 600/600
+        if (drop.requiredMinutes > 0) {
+          drop.currentMinutes = drop.requiredMinutes;
+        }
         this.addLog(
           "success",
           `Claimed drop: ${drop.name} (${campaign.gameName}) (${campaign.drops.filter((d) => d.isClaimed).length}/${campaign.drops.length})`
@@ -1476,8 +1498,58 @@ export class MinerWorker {
       }
 
       this.consecutiveWatchFailures = 0;
-      await this.syncDropProgress();
+      const synced = await this.syncDropProgress();
       if (!this.watchingMatches(login)) return;
+
+      // If no drop session found after grace period, Twitch says there's nothing to earn
+      if (!synced && !this.currentDrop) {
+        const inGrace = Date.now() < this.watchGraceUntil;
+        if (!inGrace) {
+          const focused = this.getFocusedCampaigns();
+
+          // If channel is online, correct game, and drops enabled — but Twitch returns no session,
+          // it means all drops for this campaign are already claimed on Twitch's side.
+          // This matches TDM behavior: dropCurrentSession == null means nothing left to earn.
+          if (
+            focused.length > 0 &&
+            this.watching &&
+            this.watching.online &&
+            channelMatchesCampaigns(this.watching, focused)
+          ) {
+            const campaign = focused[0];
+            this.addLog(
+              "info",
+              `No drop session from Twitch — all drops for "${campaign.name}" appear claimed`
+            );
+            // Mark all timed drops as claimed since Twitch has no session for us
+            for (const drop of campaign.drops) {
+              if (drop.requiredMinutes > 0 && !drop.isClaimed) {
+                drop.isClaimed = true;
+                drop.isComplete = true;
+                drop.canClaim = false;
+                if (drop.requiredMinutes > 0) drop.currentMinutes = drop.requiredMinutes;
+              }
+            }
+            await this.afterDropClaimed("", campaign);
+            this.emit();
+            return;
+          }
+
+          // Channel might not match or be offline — warn and wait
+          this.consecutiveStallTicks++;
+          if (this.consecutiveStallTicks === 1 || this.consecutiveStallTicks % 5 === 0) {
+            const gameHint = focused.length > 0 && this.watching && !channelMatchesCampaigns(this.watching, focused)
+              ? ` — channel streams ${this.watching.gameName || "unknown"}`
+              : "";
+            this.addLog(
+              "warn",
+              `Waiting for Twitch drop session to start${gameHint}`
+            );
+          }
+        }
+        this.emit();
+        return;
+      }
 
       const newMinutes = this.currentDrop?.currentMinutes ?? -1;
       const req = this.currentDrop?.requiredMinutes ?? 0;
@@ -1504,18 +1576,8 @@ export class MinerWorker {
         this.lastWatchAt = new Date().toISOString();
         this.lastWatchMinutes = newMinutes >= 0 ? newMinutes : null;
       } else if (newMinutes === prevMinutes && prevMinutes >= 0) {
-        // Drop watch time is complete, try to claim even if Twitch hasn't updated the minute counter yet
-        if (req > 0 && newMinutes >= req - 1 && this.currentDrop?.dropId) {
-          const found = findDropInCampaigns(this.allCampaigns, this.currentDrop.dropId);
-          // If we're at req-1 minutes and have been watching for more than 65 seconds, try to claim
-          const watchElapsedMs = this.lastWatchAt ? Date.now() - new Date(this.lastWatchAt).getTime() : 0;
-          if (found && !found.drop.isClaimed && watchElapsedMs > 65_000) {
-            this.addLog("info", `Watch time complete (${newMinutes}/${req} min) — attempting claim`);
-            void this.onDropWatchComplete(this.currentDrop.dropId);
-            this.emit();
-            return;
-          }
-        }
+        // Don't try to claim early - wait for Twitch to send drop-claim websocket message
+        // This prevents false positives and respects Twitch's official completion signal
         const inGrace = Date.now() < this.watchGraceUntil;
         if (spade.ok && inGrace) {
           this.emit();

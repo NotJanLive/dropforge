@@ -189,10 +189,10 @@ export function applySequentialDropProgress(
         }
       }
     }
-    // Mark as claimable if we reached the required minutes OR are within 1 minute and isComplete
-    if (active.requiredMinutes > 0 && (active.currentMinutes >= active.requiredMinutes || (active.currentMinutes >= active.requiredMinutes - 1 && active.isComplete))) {
+    // Mark as complete when we reach the required minutes
+    // Note: canClaim should only be set when Twitch sends drop-claim message with dropInstanceId
+    if (active.requiredMinutes > 0 && active.currentMinutes >= active.requiredMinutes) {
       active.isComplete = true;
-      active.canClaim = true;
     }
     return idx;
   }
@@ -210,10 +210,10 @@ export function applySequentialDropProgress(
   if (requiredMinutes && requiredMinutes > 0) {
     active.requiredMinutes = requiredMinutes;
   }
-  // Mark as claimable if we reached the required minutes OR are within 1 minute and isComplete
-  if (active.requiredMinutes > 0 && (active.currentMinutes >= active.requiredMinutes || (active.currentMinutes >= active.requiredMinutes - 1 && active.isComplete))) {
+  // Mark as complete when we reach the required minutes
+  // Note: canClaim should only be set when Twitch sends drop-claim message with dropInstanceId
+  if (active.requiredMinutes > 0 && active.currentMinutes >= active.requiredMinutes) {
     active.isComplete = true;
-    active.canClaim = true;
   }
 
   return idx;

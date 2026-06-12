@@ -64,22 +64,15 @@ function parseClaimedBenefits(inventory: Record<string, unknown>): Map<string, n
 
 /**
  * TDM: infer isClaimed from gameEventDrops when self edge is missing.
- * IMPORTANT: This function can produce false positives when multiple drops in the same
- * campaign share the same benefit ID. It should ONLY be used as a last resort when
- * Twitch API doesn't provide self.isClaimed at all.
- *
- * To avoid false positives with duplicate benefit IDs, we MUST also check that
- * ALL benefits were claimed AND there are no other drops in the same campaign
- * with the same benefits that might have claimed them instead.
+ * DISABLED: Returns false to avoid false positives with shared benefit IDs
+ * (e.g. Overwatch campaigns where all 5 drops share "100 Comp Points").
+ * Instead, claimed status is detected at runtime when Twitch returns
+ * dropCurrentSession = null (meaning nothing left to earn).
  */
 function dropClaimedFromBenefits(
-  drop: Record<string, unknown>,
-  claimedBenefits: Map<string, number>
+  _drop: Record<string, unknown>,
+  _claimedBenefits: Map<string, number>
 ): boolean {
-  // DISABLED: This function produces too many false positives with shared benefit IDs.
-  // Without self.isClaimed from Twitch API, we cannot reliably determine claim status.
-  // Default to unclaimed (false) to avoid stopping mining prematurely.
-  // The drop will be properly detected as claimable when progress completes.
   return false;
 }
 
@@ -116,8 +109,10 @@ function parseCampaignFromDetail(
       name: String(d.name ?? ""),
       imageUrl: dropImageFrom(d),
       requiredMinutes: required,
+      // If claimed, show full minutes. Otherwise show actual current progress.
       currentMinutes: isClaimed && required > 0 ? required : current,
       isClaimed,
+      // Drop is complete if claimed OR current >= required
       isComplete: isClaimed || (required > 0 && current >= required),
       canClaim: Boolean(self.claimAvailable),
       claimId: self.dropInstanceID ? String(self.dropInstanceID) : undefined,
@@ -600,8 +595,13 @@ export function mergeCampaignProgress(existing: CampaignInfo[], incoming: Campai
           // preserve locally tracked claimed status to avoid losing claim state across refreshes
           const apiHasSelfEdge = drop.isClaimed === true; // If true, API definitely said claimed
           const isClaimed = apiHasSelfEdge ? true : (drop.isClaimed || prevDrop.isClaimed);
-          const currentMinutes = Math.max(drop.currentMinutes, prevDrop.currentMinutes);
           const required = drop.requiredMinutes;
+
+          // When claimed, always show full progress. Otherwise use max of current and previous.
+          const currentMinutes = isClaimed && required > 0
+            ? required
+            : Math.max(drop.currentMinutes, prevDrop.currentMinutes);
+
           const gameImg = campaign.gameImageUrl || prev?.gameImageUrl || peerImage;
           // isComplete should be derived from claimed status and current progress
           const isComplete = isClaimed || (required > 0 && currentMinutes >= required);
@@ -609,7 +609,7 @@ export function mergeCampaignProgress(existing: CampaignInfo[], incoming: Campai
             ...drop,
             claimId: drop.claimId ?? prevDrop.claimId,
             isClaimed,
-            currentMinutes: isClaimed && required > 0 ? required : currentMinutes,
+            currentMinutes,
             isComplete,
             imageUrl: drop.imageUrl || gameImg,
           };
