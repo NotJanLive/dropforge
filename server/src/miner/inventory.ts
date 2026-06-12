@@ -593,7 +593,9 @@ export function mergeCampaignProgress(existing: CampaignInfo[], incoming: Campai
               imageUrl: drop.imageUrl || campaign.gameImageUrl || prev?.gameImageUrl || peerImage,
             };
           }
-          const isClaimed = drop.isClaimed || prevDrop.isClaimed;
+          // Trust fresh data from Twitch API - don't preserve old cached claimed status
+          // Only use cached progress if it's higher (for minute tracking)
+          const isClaimed = drop.isClaimed;
           const currentMinutes = Math.max(drop.currentMinutes, prevDrop.currentMinutes);
           const required = drop.requiredMinutes;
           const gameImg = campaign.gameImageUrl || prev?.gameImageUrl || peerImage;
