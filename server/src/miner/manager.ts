@@ -66,6 +66,43 @@ function persistMinerLogs(userId: number, logs: MinerLogEntry[]) {
   }).run();
 }
 
+export function loadClaimedDropIds(userId: number): Set<string> {
+  const row = db.select().from(userMinerSettings).where(eq(userMinerSettings.userId, userId)).get();
+  if (!row?.claimedDropIds) return new Set();
+  try {
+    const parsed = JSON.parse(row.claimedDropIds);
+    if (!Array.isArray(parsed)) return new Set();
+    return new Set(parsed.filter((id): id is string => typeof id === "string" && id.length > 0));
+  } catch {
+    return new Set();
+  }
+}
+
+function persistClaimedDropIds(userId: number, ids: Set<string>) {
+  const now = new Date().toISOString();
+  const payload = JSON.stringify([...ids]);
+  const existing = db.select().from(userMinerSettings).where(eq(userMinerSettings.userId, userId)).get();
+
+  if (existing) {
+    db.update(userMinerSettings)
+      .set({ claimedDropIds: payload, updatedAt: now })
+      .where(eq(userMinerSettings.userId, userId))
+      .run();
+  } else {
+    db.insert(userMinerSettings).values({
+      userId,
+      priorityMode: "PRIORITY_ONLY",
+      priorityGames: "[]",
+      excludeGames: "[]",
+      selectedCampaigns: "[]",
+      manualChannelLogin: null,
+      activeCampaignId: null,
+      claimedDropIds: payload,
+      updatedAt: now,
+    }).run();
+  }
+}
+
 function loadSettings(userId: number): MinerSettings {
   const row = db.select().from(userMinerSettings).where(eq(userMinerSettings.userId, userId)).get();
   if (!row) {
@@ -176,6 +213,7 @@ export class MinerManager {
     if (!auth) return;
     const settings = loadSettings(userId);
     const logs = loadMinerLogs(userId);
+    const claimedIds = loadClaimedDropIds(userId);
     const worker = new MinerWorker(
       userId,
       auth,
@@ -189,6 +227,10 @@ export class MinerManager {
       logs,
       (nextLogs) => {
         persistMinerLogs(userId, nextLogs);
+      },
+      claimedIds,
+      (ids) => {
+        persistClaimedDropIds(userId, ids);
       }
     );
     this.workers.set(userId, worker);

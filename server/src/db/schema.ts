@@ -42,6 +42,7 @@ export const userMinerSettings = sqliteTable("user_miner_settings", {
   activeCampaignId: text("active_campaign_id"),
   manualChannelLogin: text("manual_channel_login"),
   minerLogs: text("miner_logs").notNull().default("[]"),
+  claimedDropIds: text("claimed_drop_ids").notNull().default("[]"),
   updatedAt: text("updated_at").notNull(),
 });
 

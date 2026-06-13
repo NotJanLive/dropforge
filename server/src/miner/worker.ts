@@ -53,6 +53,7 @@ export interface MinerSettings {
 type StatusCallback = (userId: number, status: MinerStatus) => void;
 type SettingsPersistCallback = (partial: Partial<MinerSettings>) => void;
 type LogsPersistCallback = (logs: MinerLogEntry[]) => void;
+type ClaimedDropsPersistCallback = (ids: Set<string>) => void;
 
 function asRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" ? (value as Record<string, unknown>) : {};
@@ -92,6 +93,7 @@ export class MinerWorker {
   private claiming = false;
   private watchGraceUntil = 0;
   private maintenanceTriggers: number[] = [];
+  private claimedDropIds: Set<string>;
 
   constructor(
     private userId: number,
@@ -100,10 +102,13 @@ export class MinerWorker {
     private onStatus: StatusCallback,
     private onSettingsPersist: SettingsPersistCallback = () => undefined,
     initialLogs: MinerLogEntry[] = [],
-    private onLogsPersist: LogsPersistCallback = () => undefined
+    private onLogsPersist: LogsPersistCallback = () => undefined,
+    initialClaimedDropIds: Set<string> = new Set(),
+    private onClaimedDropsPersist: ClaimedDropsPersistCallback = () => undefined
   ) {
     this.settings = { ...settings };
     this.logs = [...initialLogs];
+    this.claimedDropIds = new Set(initialClaimedDropIds);
   }
 
   /** Switch focused campaign (pinned until finished, or null for priority auto). */
@@ -406,6 +411,27 @@ export class MinerWorker {
     this.message = "Stopped";
     this.addLog("info", "Miner stopped");
     this.emit();
+  }
+
+  private markDropClaimed(dropId: string) {
+    this.claimedDropIds.add(dropId);
+    this.onClaimedDropsPersist(this.claimedDropIds);
+  }
+
+  private applyPersistedClaimedStatus() {
+    if (this.claimedDropIds.size === 0) return;
+    for (const campaign of this.allCampaigns) {
+      for (const drop of campaign.drops) {
+        if (this.claimedDropIds.has(drop.id) && !drop.isClaimed) {
+          drop.isClaimed = true;
+          drop.isComplete = true;
+          drop.canClaim = false;
+          if (drop.requiredMinutes > 0) {
+            drop.currentMinutes = drop.requiredMinutes;
+          }
+        }
+      }
+    }
   }
 
   private addLog(level: MinerLogEntry["level"], message: string) {
@@ -812,6 +838,7 @@ export class MinerWorker {
   private applyInventoryList(campaigns: CampaignInfo[]) {
     const merged = mergeCampaignProgress(this.allCampaigns, campaigns);
     this.allCampaigns = finalizeCampaigns(merged);
+    this.applyPersistedClaimedStatus();
     this.refilterMiningCampaigns();
     this.scheduleMaintenanceTriggers();
   }
@@ -1220,14 +1247,13 @@ export class MinerWorker {
       this.addLog("info", `Claiming drop: ${drop.name} (${campaign.gameName})`);
       const ok = await claimDrop(this.auth, claimId);
       if (ok) {
-        // Mark as claimed and update progress to show completion
         drop.isClaimed = true;
         drop.isComplete = true;
         drop.canClaim = false;
-        // IMPORTANT: Set currentMinutes to requiredMinutes so UI shows 600/600
         if (drop.requiredMinutes > 0) {
           drop.currentMinutes = drop.requiredMinutes;
         }
+        this.markDropClaimed(dropId);
         this.addLog(
           "success",
           `Claimed drop: ${drop.name} (${campaign.gameName}) (${campaign.drops.filter((d) => d.isClaimed).length}/${campaign.drops.length})`

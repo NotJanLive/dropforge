@@ -144,6 +144,11 @@ function migrateDb() {
   } catch {
     /* column already exists */
   }
+  try {
+    sqlite!.run(`ALTER TABLE user_miner_settings ADD COLUMN claimed_drop_ids TEXT NOT NULL DEFAULT '[]'`);
+  } catch {
+    /* column already exists */
+  }
 }
 
 export function getSiteConfig() {
