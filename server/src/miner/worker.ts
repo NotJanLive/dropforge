@@ -700,36 +700,10 @@ export class MinerWorker {
           }
         }
 
-        const hasSession = await this.syncDropProgress();
+        await this.syncDropProgress();
         this.consecutiveStallTicks = 0;
         this.consecutiveWatchFailures = 0;
         this.watchGraceUntil = Date.now() + 65_000;
-
-        // If Twitch returns no drop session immediately, all drops may be claimed already
-        if (!hasSession && !this.currentDrop) {
-          const focused = this.getFocusedCampaigns();
-          if (focused.length > 0 && channelMatchesCampaigns(ch, focused)) {
-            const campaign = focused[0];
-            this.addLog(
-              "info",
-              `No drop session from Twitch — all drops for "${campaign.name}" appear claimed`
-            );
-            for (const drop of campaign.drops) {
-              if (drop.requiredMinutes > 0 && !drop.isClaimed) {
-                drop.isClaimed = true;
-                drop.isComplete = true;
-                drop.canClaim = false;
-                drop.currentMinutes = drop.requiredMinutes;
-              }
-            }
-            this.watching = null;
-            this.broadcastId = null;
-            await this.afterDropClaimed("", campaign);
-            this.emit();
-            return;
-          }
-        }
-
         if (this.currentDrop) {
           this.lastWatchMinutes = this.currentDrop.currentMinutes;
         }
@@ -1501,49 +1475,19 @@ export class MinerWorker {
       const synced = await this.syncDropProgress();
       if (!this.watchingMatches(login)) return;
 
-      // If no drop session found after grace period, Twitch says there's nothing to earn
+      // No drop session yet — keep watching, Twitch may need time to start tracking
       if (!synced && !this.currentDrop) {
         const inGrace = Date.now() < this.watchGraceUntil;
         if (!inGrace) {
-          const focused = this.getFocusedCampaigns();
-
-          // If channel is online, correct game, and drops enabled — but Twitch returns no session,
-          // it means all drops for this campaign are already claimed on Twitch's side.
-          // This matches TDM behavior: dropCurrentSession == null means nothing left to earn.
-          if (
-            focused.length > 0 &&
-            this.watching &&
-            this.watching.online &&
-            channelMatchesCampaigns(this.watching, focused)
-          ) {
-            const campaign = focused[0];
-            this.addLog(
-              "info",
-              `No drop session from Twitch — all drops for "${campaign.name}" appear claimed`
-            );
-            // Mark all timed drops as claimed since Twitch has no session for us
-            for (const drop of campaign.drops) {
-              if (drop.requiredMinutes > 0 && !drop.isClaimed) {
-                drop.isClaimed = true;
-                drop.isComplete = true;
-                drop.canClaim = false;
-                if (drop.requiredMinutes > 0) drop.currentMinutes = drop.requiredMinutes;
-              }
-            }
-            await this.afterDropClaimed("", campaign);
-            this.emit();
-            return;
-          }
-
-          // Channel might not match or be offline — warn and wait
           this.consecutiveStallTicks++;
           if (this.consecutiveStallTicks === 1 || this.consecutiveStallTicks % 5 === 0) {
+            const focused = this.getFocusedCampaigns();
             const gameHint = focused.length > 0 && this.watching && !channelMatchesCampaigns(this.watching, focused)
               ? ` — channel streams ${this.watching.gameName || "unknown"}`
               : "";
             this.addLog(
               "warn",
-              `Waiting for Twitch drop session to start${gameHint}`
+              `No drop session from Twitch yet${gameHint}`
             );
           }
         }
