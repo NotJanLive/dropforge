@@ -3,7 +3,6 @@ import { useNavigate } from "react-router-dom";
 import { Activity, AlertCircle, CheckCircle2, Circle, Radio, RefreshCw, Terminal, Timer } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Label } from "@/components/ui/label";
 import { Progress } from "@/components/ui/progress";
 import { api, type CampaignDropView, type ChannelInfo, type MinerLogEntry, type MinerStatus } from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
@@ -317,7 +316,7 @@ export function OverviewPage() {
             <CardContent className="pt-0">
               <div
                 ref={logRef}
-                className="min-h-[10rem] max-h-56 overflow-y-auto rounded-lg border border-border/60 bg-black/40 p-3 font-mono text-xs space-y-1 dashboard-scroll lg:max-h-64"
+                className="min-h-[5rem] max-h-28 overflow-y-auto rounded-lg border border-border/60 bg-black/40 p-3 font-mono text-xs space-y-1 dashboard-scroll lg:max-h-32"
               >
                 {(live?.logs ?? []).map((entry, i) => (
                   <LogLine key={`${entry.time}-${i}`} entry={entry} />
@@ -364,12 +363,7 @@ function CampaignSelector({
   const value = activeCampaignId ?? "__auto__";
 
   return (
-    <div className={cn("space-y-1.5 w-full text-center", className)}>
-      <Label htmlFor="campaign-select" className="text-xs text-muted-foreground">
-        Mining campaign
-        {!activeCampaignId && " · automatic priority"}
-        {activeCampaignId && " · pinned until complete"}
-      </Label>
+    <div className={cn("w-full text-center", className)}>
       <select
         id="campaign-select"
         value={value}
