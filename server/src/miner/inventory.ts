@@ -64,16 +64,29 @@ function parseClaimedBenefits(inventory: Record<string, unknown>): Map<string, n
 
 /**
  * TDM: infer isClaimed from gameEventDrops when self edge is missing.
- * DISABLED: Returns false to avoid false positives with shared benefit IDs
- * (e.g. Overwatch campaigns where all 5 drops share "100 Comp Points").
- * Instead, claimed status is detected at runtime when Twitch returns
- * dropCurrentSession = null (meaning nothing left to earn).
+ * Check if ALL benefit IDs of this drop appear in gameEventDrops with a
+ * lastAwardedAt timestamp within the drop's active period.
  */
 function dropClaimedFromBenefits(
-  _drop: Record<string, unknown>,
-  _claimedBenefits: Map<string, number>
+  drop: Record<string, unknown>,
+  claimedBenefits: Map<string, number>
 ): boolean {
-  return false;
+  const edges = asArray<Record<string, unknown>>(drop.benefitEdges);
+  if (edges.length === 0) return false;
+
+  const dropStart = Date.parse(String(drop.startAt ?? ""));
+  const dropEnd = Date.parse(String(drop.endAt ?? ""));
+  if (!Number.isFinite(dropStart) || !Number.isFinite(dropEnd)) return false;
+
+  for (const edge of edges) {
+    const benefit = asRecord(edge.benefit ?? edge);
+    const benefitId = String(benefit.id ?? "");
+    if (!benefitId) return false;
+    const awardedAt = claimedBenefits.get(benefitId);
+    if (awardedAt === undefined) return false;
+    if (awardedAt < dropStart || awardedAt >= dropEnd) return false;
+  }
+  return true;
 }
 
 function parseCampaignFromDetail(

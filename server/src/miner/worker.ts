@@ -418,6 +418,22 @@ export class MinerWorker {
     this.onClaimedDropsPersist(this.claimedDropIds);
   }
 
+  /** Scan all campaigns for drops marked isClaimed and persist any new ones. */
+  private persistNewlyClaimedDrops() {
+    let changed = false;
+    for (const campaign of this.allCampaigns) {
+      for (const drop of campaign.drops) {
+        if (drop.isClaimed && !this.claimedDropIds.has(drop.id)) {
+          this.claimedDropIds.add(drop.id);
+          changed = true;
+        }
+      }
+    }
+    if (changed) {
+      this.onClaimedDropsPersist(this.claimedDropIds);
+    }
+  }
+
   private applyPersistedClaimedStatus() {
     if (this.claimedDropIds.size === 0) return;
     for (const campaign of this.allCampaigns) {
@@ -1390,7 +1406,17 @@ export class MinerWorker {
       const campaignId = String(campaignRaw.id ?? session.campaignID ?? session.campaignId ?? "");
       if (campaignId) await this.ensureCampaignDrops(campaignId, dropId);
 
+      // If Twitch is actively tracking this drop, it's NOT claimed yet — correct false positives
+      const activeFound = findDropInCampaigns(this.allCampaigns, dropId);
+      if (activeFound && activeFound.drop.isClaimed && currentMinutes < requiredMinutes) {
+        activeFound.drop.isClaimed = false;
+        activeFound.drop.isComplete = false;
+        activeFound.drop.currentMinutes = currentMinutes;
+        this.claimedDropIds.delete(dropId);
+      }
+
       updateDropMinutesInCampaigns(this.allCampaigns, dropId, currentMinutes, requiredMinutes);
+      this.persistNewlyClaimedDrops();
       this.currentDrop = this.buildDropProgressFromSession(session, dropId, currentMinutes, requiredMinutes);
 
       if (this.currentDrop.campaignId) {

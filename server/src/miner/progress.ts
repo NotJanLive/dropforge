@@ -184,24 +184,26 @@ export function applySequentialDropProgress(
     for (const d of campaign.drops) {
       if (d.requiredMinutes > 0 && active.currentMinutes >= d.requiredMinutes) {
         if (d.id === activeDropId) continue;
-        if (!d.isClaimed) {
-          d.isComplete = true;
-        }
+        // If Twitch is tracking a later drop, earlier ones must be claimed
+        d.isClaimed = true;
+        d.isComplete = true;
+        d.currentMinutes = d.requiredMinutes;
       }
     }
     // Mark as complete when we reach the required minutes
-    // Note: canClaim should only be set when Twitch sends drop-claim message with dropInstanceId
     if (active.requiredMinutes > 0 && active.currentMinutes >= active.requiredMinutes) {
       active.isComplete = true;
     }
     return idx;
   }
 
+  // Sequential drops: if Twitch is tracking drop at idx, all earlier drops are claimed
   for (let i = 0; i < idx; i++) {
     const d = campaign.drops[i];
     if (d.requiredMinutes > 0) {
-      d.currentMinutes = d.requiredMinutes;
+      d.isClaimed = true;
       d.isComplete = true;
+      d.currentMinutes = d.requiredMinutes;
     }
   }
 
