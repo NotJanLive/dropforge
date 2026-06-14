@@ -434,6 +434,38 @@ export class MinerWorker {
     }
   }
 
+  /** Infer current drop from campaign inventory when Twitch session context is unavailable.
+   *  Matches TDM first_drop: pick the earnable drop with fewest remaining minutes. */
+  private inferCurrentDropFromCampaigns(): DropProgress | null {
+    const focused = this.resolveFocusedCampaign();
+    if (!focused) return null;
+
+    const earnable = focused.drops.filter(
+      (d) => !d.isClaimed && d.requiredMinutes > 0 && d.currentMinutes > 0
+    );
+    if (earnable.length === 0) return null;
+
+    // Pick drop closest to completion (fewest remaining minutes) — matches TDM first_drop
+    earnable.sort(
+      (a, b) =>
+        (a.requiredMinutes - a.currentMinutes) - (b.requiredMinutes - b.currentMinutes)
+    );
+    const best = earnable[0];
+
+    return {
+      dropId: best.id,
+      dropName: best.name,
+      campaignId: focused.id,
+      campaignName: focused.name,
+      gameName: focused.gameName,
+      imageUrl: best.imageUrl || focused.gameImageUrl,
+      gameImageUrl: focused.gameImageUrl,
+      currentMinutes: best.currentMinutes,
+      requiredMinutes: best.requiredMinutes,
+      isComplete: best.isComplete,
+    };
+  }
+
   private applyPersistedClaimedStatus() {
     if (this.claimedDropIds.size === 0) return;
     for (const campaign of this.allCampaigns) {
@@ -743,6 +775,9 @@ export class MinerWorker {
         }
 
         await this.syncDropProgress();
+        if (!this.currentDrop) {
+          this.currentDrop = this.inferCurrentDropFromCampaigns();
+        }
         this.consecutiveStallTicks = 0;
         this.consecutiveWatchFailures = 0;
         this.watchGraceUntil = Date.now() + 65_000;
@@ -1527,8 +1562,14 @@ export class MinerWorker {
       const synced = await this.syncDropProgress();
       if (!this.watchingMatches(login)) return;
 
-      // No drop session yet — keep watching, Twitch may need time to start tracking
+      // No drop session yet — try to infer from inventory, then keep watching
       if (!synced && !this.currentDrop) {
+        const inferred = this.inferCurrentDropFromCampaigns();
+        if (inferred) {
+          this.currentDrop = inferred;
+          this.emit();
+          return;
+        }
         const inGrace = Date.now() < this.watchGraceUntil;
         if (!inGrace) {
           this.consecutiveStallTicks++;
@@ -1592,6 +1633,29 @@ export class MinerWorker {
             "warn",
             `No Twitch progress yet (${newMinutes}/${this.currentDrop?.requiredMinutes ?? "?"} min) [spade=${spade.status}]${gameHint}`
           );
+        }
+
+        // After ~20 stall ticks (~20 min) without progress, this channel is not crediting drops.
+        // Try switching to another channel; if none found, stay but keep checking.
+        if (this.consecutiveStallTicks === 20) {
+          const currentLogin = this.watching?.login;
+          this.addLog("warn", `No drop progress for ~20 min on ${currentLogin ?? "channel"} — searching for another`);
+          await this.refreshChannelsQuietly();
+          const best = pickBestChannel(
+            this.getDisplayChannels().filter((c) => !sameLogin(c.login, currentLogin)),
+            this.getFocusedCampaigns(),
+            null,
+            null,
+            this.settings.priorityGames
+          );
+          if (best) {
+            this.consecutiveStallTicks = 0;
+            await this.applyChannelSwitch(best.login);
+            return;
+          }
+          // No better channel found — reset counter and keep watching current one
+          this.consecutiveStallTicks = 0;
+          this.addLog("info", `No alternative channel found — staying on ${currentLogin ?? "current channel"}`);
         }
       }
 
