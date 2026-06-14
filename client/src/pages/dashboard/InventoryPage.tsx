@@ -200,6 +200,19 @@ export function InventoryPage() {
           const claimed = campaign.drops.filter((d) => d.isClaimed).length;
           const isPinned = pinnedCampaignIds.includes(campaign.id);
           const gameImg = resolveGameImageUrl(campaign);
+          const activeMiningDropId = live?.activeMining?.dropId;
+
+          const claimedDrops = campaign.drops
+            .filter((d) => dropInventoryStatus(d) === "claimed")
+            .sort((a, b) => a.requiredMinutes - b.requiredMinutes);
+          const activeDrops = campaign.drops.filter(
+            (d) => d.id === activeMiningDropId
+          );
+          const openDrops = campaign.drops
+            .filter((d) => dropInventoryStatus(d) !== "claimed" && d.id !== activeMiningDropId)
+            .sort((a, b) => a.requiredMinutes - b.requiredMinutes);
+          const sortedDrops = [...claimedDrops, ...activeDrops, ...openDrops];
+
           return (
             <Card key={campaign.id} className="overflow-hidden">
               <CardHeader className="pb-4">
@@ -234,8 +247,9 @@ export function InventoryPage() {
               </CardHeader>
               <CardContent>
                 <div className="flex gap-3 overflow-x-auto pb-2">
-                  {campaign.drops.map((drop) => {
+                  {sortedDrops.map((drop) => {
                     const st = dropInventoryStatus(drop);
+                    const isActive = drop.id === activeMiningDropId;
                     return (
                       <div
                         key={drop.id}
@@ -243,7 +257,8 @@ export function InventoryPage() {
                           "shrink-0 w-28 rounded-lg border p-2 text-center space-y-2",
                           st === "claimed" && "border-emerald-500/40 bg-emerald-500/5",
                           st === "ready" && "border-amber-500/40 bg-amber-500/5",
-                          st === "progress" && "border-primary/30 bg-primary/5",
+                          isActive && "border-primary/50 bg-primary/5 ring-1 ring-primary/30",
+                          !isActive && st === "progress" && "border-primary/30 bg-primary/5",
                           st === "pending" && "border-border/60"
                         )}
                       >
@@ -262,17 +277,17 @@ export function InventoryPage() {
                             "text-[10px]",
                             st === "claimed" && "text-emerald-400",
                             st === "ready" && "text-amber-400",
-                            st === "progress" && "text-primary",
-                            st === "pending" && "text-muted-foreground"
+                            (isActive || st === "progress") && "text-primary",
+                            st === "pending" && !isActive && "text-muted-foreground"
                           )}
                         >
                           {st === "claimed" && "Claimed"}
                           {st === "ready" && "Ready to claim"}
-                          {st === "progress" &&
+                          {(isActive || st === "progress") &&
                             (drop.requiredMinutes > 0
                               ? `${Math.round((drop.currentMinutes / drop.requiredMinutes) * 1000) / 10}% (${drop.currentMinutes}/${drop.requiredMinutes} min)`
                               : "In progress")}
-                          {st === "pending" &&
+                          {st === "pending" && !isActive &&
                             (drop.requiredMinutes > 0
                               ? `${drop.requiredMinutes} min`
                               : "Subscribe")}
