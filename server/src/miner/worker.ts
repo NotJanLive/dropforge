@@ -1588,6 +1588,14 @@ export class MinerWorker {
         const inGrace = Date.now() < this.watchGraceUntil;
         if (!inGrace) {
           this.consecutiveStallTicks++;
+          // No drop session and nothing inferable — campaign may be fully claimed.
+          // Trigger inventory refresh to get fresh claim status from Twitch.
+          if (this.consecutiveStallTicks >= 3 && !this.forceInventoryRefresh) {
+            this.forceInventoryRefresh = true;
+            this.addLog("info", "No active drop session — refreshing inventory to check claim status");
+            this.emit();
+            return;
+          }
           if (this.consecutiveStallTicks === 1 || this.consecutiveStallTicks % 5 === 0) {
             const focused = this.getFocusedCampaigns();
             const gameHint = focused.length > 0 && this.watching && !channelMatchesCampaigns(this.watching, focused)
