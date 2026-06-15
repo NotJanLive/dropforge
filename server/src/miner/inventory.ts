@@ -107,6 +107,7 @@ function parseCampaignFromDetail(
     const fallbackDrops = asArray<Record<string, unknown>>(fallback?.timeBasedDrops ?? []);
     const fallbackDrop = fallbackDrops.find((fd) => String(fd.id) === String(d.id));
     const self = asRecord(d.self ?? fallbackDrop?.self);
+    const fallbackSelf = asRecord(fallbackDrop?.self);
 
     const required = Number(d.requiredMinutesWatched ?? 0);
     const current = Number(self.currentMinutesWatched ?? 0);
@@ -117,6 +118,14 @@ function parseCampaignFromDetail(
     const isClaimed = hasSelfEdge
       ? Boolean(self.isClaimed)
       : dropClaimedFromBenefits(d, claimedBenefits);
+    // Merge claimAvailable/dropInstanceID from both sources — CampaignDetails
+    // often omits these fields even when the Inventory endpoint has them
+    const canClaim = Boolean(self.claimAvailable || fallbackSelf.claimAvailable);
+    const claimId = self.dropInstanceID
+      ? String(self.dropInstanceID)
+      : fallbackSelf.dropInstanceID
+        ? String(fallbackSelf.dropInstanceID)
+        : undefined;
     return {
       id: String(d.id ?? ""),
       name: String(d.name ?? ""),
@@ -127,8 +136,8 @@ function parseCampaignFromDetail(
       isClaimed,
       // Drop is complete if claimed OR current >= required
       isComplete: isClaimed || (required > 0 && current >= required),
-      canClaim: Boolean(self.claimAvailable),
-      claimId: self.dropInstanceID ? String(self.dropInstanceID) : undefined,
+      canClaim,
+      claimId,
       preconditionDropIds: asArray<Record<string, unknown>>(d.preconditionDrops).map((p) =>
         String(asRecord(p).id ?? p)
       ),
@@ -567,7 +576,7 @@ export function sortCampaignsForDisplay(campaigns: CampaignInfo[]): CampaignInfo
 export function mergeCampaignProgress(existing: CampaignInfo[], incoming: CampaignInfo[]): CampaignInfo[] {
   const progressByDrop = new Map<
     string,
-    { currentMinutes: number; isComplete: boolean; isClaimed: boolean; claimId?: string }
+    { currentMinutes: number; isComplete: boolean; isClaimed: boolean; canClaim: boolean; claimId?: string }
   >();
   for (const c of existing) {
     for (const d of c.drops) {
@@ -575,6 +584,7 @@ export function mergeCampaignProgress(existing: CampaignInfo[], incoming: Campai
         currentMinutes: d.currentMinutes,
         isComplete: d.isComplete,
         isClaimed: d.isClaimed,
+        canClaim: d.canClaim,
         claimId: d.claimId,
       });
     }
@@ -621,6 +631,7 @@ export function mergeCampaignProgress(existing: CampaignInfo[], incoming: Campai
           return {
             ...drop,
             claimId: drop.claimId ?? prevDrop.claimId,
+            canClaim: drop.canClaim || prevDrop.canClaim,
             isClaimed,
             currentMinutes,
             isComplete,

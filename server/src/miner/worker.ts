@@ -1470,6 +1470,21 @@ export class MinerWorker {
         void this.tryClaimDrop(dropId);
       }
 
+      // Twitch often stops reporting progress at requiredMinutes-1 (e.g. 899/900).
+      // The drop IS claimable but we won't know until an inventory refresh fetches canClaim.
+      if (
+        found &&
+        !found.drop.isClaimed &&
+        !found.drop.canClaim &&
+        !found.drop.claimId &&
+        requiredMinutes > 0 &&
+        currentMinutes >= requiredMinutes - 1 &&
+        currentMinutes < requiredMinutes &&
+        !this.forceInventoryRefresh
+      ) {
+        this.forceInventoryRefresh = true;
+      }
+
       return true;
     } catch (err) {
       const msg = err instanceof Error ? err.message : "sync failed";
