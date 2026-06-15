@@ -655,8 +655,9 @@ export function dropCanClaim(
   if (drop.isClaimed) return false;
   const endGrace = new Date(campaign.endsAt).getTime() + 24 * 60 * 60 * 1000;
   if (nowMs >= endGrace) return false;
+  // Twitch never reports the final minute — treat requiredMinutes-1 as watch complete
   const watchDone =
-    drop.requiredMinutes <= 0 || drop.currentMinutes >= drop.requiredMinutes;
+    drop.requiredMinutes <= 0 || drop.currentMinutes >= drop.requiredMinutes - 1;
   return Boolean(drop.claimId || drop.canClaim || watchDone);
 }
 
@@ -668,7 +669,7 @@ export function resolveClaimId(
   if (drop.claimId) return drop.claimId;
   if (
     drop.canClaim ||
-    (drop.requiredMinutes > 0 && drop.currentMinutes >= drop.requiredMinutes)
+    (drop.requiredMinutes > 0 && drop.currentMinutes >= drop.requiredMinutes - 1)
   ) {
     return buildClaimId(auth.userId, campaignId, drop.id);
   }
