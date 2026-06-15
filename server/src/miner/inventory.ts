@@ -249,10 +249,48 @@ async function fetchCampaignSourceMapUncached(auth: TwitchAuthSession): Promise<
     return status === "ACTIVE" || status === "UPCOMING";
   });
 
+  // inProgress has the richest self edge (currentMinutesWatched, claimAvailable, dropInstanceID).
+  // Merge so that inProgress data wins over available/rewardCampaigns for the self edge.
   const byId = new Map<string, Record<string, unknown>>();
-  for (const c of [...inProgress, ...available, ...rewardCampaigns]) {
+  for (const c of [...rewardCampaigns, ...available, ...inProgress]) {
     const id = String(c.id ?? "");
-    if (id) byId.set(id, c);
+    if (!id) continue;
+    const existing = byId.get(id);
+    if (!existing) {
+      byId.set(id, c);
+    } else {
+      // Merge: keep existing structure but overlay inProgress self edges onto drops
+      const existingDrops = asArray<Record<string, unknown>>(existing.timeBasedDrops);
+      const incomingDrops = asArray<Record<string, unknown>>(c.timeBasedDrops);
+      if (incomingDrops.length > 0 && existingDrops.length > 0) {
+        for (const inDrop of incomingDrops) {
+          const inSelf = inDrop.self;
+          if (!inSelf) continue;
+          const match = existingDrops.find((ed) => String(ed.id) === String(inDrop.id));
+          if (match && !match.self) {
+            match.self = inSelf;
+          } else if (match && match.self) {
+            // Merge self fields — inProgress has claimAvailable/dropInstanceID
+            const mSelf = match.self as Record<string, unknown>;
+            const iSelf = inSelf as Record<string, unknown>;
+            if (iSelf.claimAvailable) mSelf.claimAvailable = iSelf.claimAvailable;
+            if (iSelf.dropInstanceID) mSelf.dropInstanceID = iSelf.dropInstanceID;
+            if (iSelf.currentMinutesWatched !== undefined) {
+              mSelf.currentMinutesWatched = Math.max(
+                Number(mSelf.currentMinutesWatched ?? 0),
+                Number(iSelf.currentMinutesWatched ?? 0)
+              );
+            }
+          }
+        }
+      } else if (incomingDrops.length > 0) {
+        (existing as Record<string, unknown>).timeBasedDrops = incomingDrops;
+      }
+      // Prefer inProgress for top-level self as well
+      if (c.self && !existing.self) {
+        (existing as Record<string, unknown>).self = c.self;
+      }
+    }
   }
 
   return { gql, byId, claimedBenefits };
