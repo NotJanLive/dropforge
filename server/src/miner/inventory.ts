@@ -693,10 +693,9 @@ export function dropCanClaim(
   if (drop.isClaimed) return false;
   const endGrace = new Date(campaign.endsAt).getTime() + 24 * 60 * 60 * 1000;
   if (nowMs >= endGrace) return false;
-  // Twitch never reports the final minute — treat requiredMinutes-1 as watch complete
-  const watchDone =
-    drop.requiredMinutes <= 0 || drop.currentMinutes >= drop.requiredMinutes - 1;
-  return Boolean(drop.claimId || drop.canClaim || watchDone);
+  // Only claim when Twitch explicitly signals via claimId or canClaim flag
+  // Do NOT claim based on watch time alone - wait for Twitch's signal
+  return Boolean(drop.claimId || drop.canClaim);
 }
 
 export function resolveClaimId(
@@ -705,10 +704,7 @@ export function resolveClaimId(
   campaignId: string
 ): string | null {
   if (drop.claimId) return drop.claimId;
-  if (
-    drop.canClaim ||
-    (drop.requiredMinutes > 0 && drop.currentMinutes >= drop.requiredMinutes - 1)
-  ) {
+  if (drop.canClaim) {
     return buildClaimId(auth.userId, campaignId, drop.id);
   }
   return null;
@@ -842,7 +838,8 @@ export function applyDropProgress(
   }
   if (found.drop.requiredMinutes > 0 && currentMinutes >= found.drop.requiredMinutes) {
     found.drop.isComplete = true;
-    found.drop.canClaim = true;
+    // Do NOT auto-set canClaim here - it should only come from Twitch API (claimAvailable)
+    // or WebSocket message (drop-claim with dropInstanceID)
   }
 
   return {
