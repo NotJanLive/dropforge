@@ -623,11 +623,10 @@ export function mergeCampaignProgress(existing: CampaignInfo[], incoming: Campai
               imageUrl: drop.imageUrl || campaign.gameImageUrl || prev?.gameImageUrl || peerImage,
             };
           }
-          // Trust fresh data from Twitch API - but only if it has self edge
-          // If API doesn't provide self.isClaimed (returns false from dropClaimedFromBenefits),
-          // preserve locally tracked claimed status to avoid losing claim state across refreshes
-          const apiHasSelfEdge = drop.isClaimed === true; // If true, API definitely said claimed
-          const isClaimed = apiHasSelfEdge ? true : (drop.isClaimed || prevDrop.isClaimed);
+          // Trust Twitch's isClaimed directly. The old code fell back to prevDrop.isClaimed when
+          // Twitch returned false, which caused stale benefit-inference false-positives to survive
+          // across refreshes. applyPersistedClaimedStatus handles persistence for actually-claimed drops.
+          const isClaimed = drop.isClaimed;
           const required = drop.requiredMinutes;
 
           // When claimed, always show full progress. Otherwise use max of current and previous.

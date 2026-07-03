@@ -468,6 +468,24 @@ export class MinerWorker {
 
   private applyPersistedClaimedStatus() {
     if (this.claimedDropIds.size === 0) return;
+
+    // Reconcile: if Twitch explicitly says a drop on an active/upcoming campaign is NOT claimed,
+    // our local record is stale (e.g. left over from the old benefit-inference bug). Remove it so
+    // it doesn't override what Twitch just told us.
+    let staleFound = false;
+    for (const campaign of this.allCampaigns) {
+      if (campaign.status === "EXPIRED") continue;
+      for (const drop of campaign.drops) {
+        if (this.claimedDropIds.has(drop.id) && drop.isClaimed === false) {
+          this.claimedDropIds.delete(drop.id);
+          staleFound = true;
+        }
+      }
+    }
+    if (staleFound) {
+      this.onClaimedDropsPersist(this.claimedDropIds);
+    }
+
     for (const campaign of this.allCampaigns) {
       for (const drop of campaign.drops) {
         if (this.claimedDropIds.has(drop.id) && !drop.isClaimed) {
