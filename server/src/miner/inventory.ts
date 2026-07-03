@@ -62,32 +62,6 @@ function parseClaimedBenefits(inventory: Record<string, unknown>): Map<string, n
   return map;
 }
 
-/**
- * TDM: infer isClaimed from gameEventDrops when self edge is missing.
- * Check if ALL benefit IDs of this drop appear in gameEventDrops with a
- * lastAwardedAt timestamp within the drop's active period.
- */
-function dropClaimedFromBenefits(
-  drop: Record<string, unknown>,
-  claimedBenefits: Map<string, number>
-): boolean {
-  const edges = asArray<Record<string, unknown>>(drop.benefitEdges);
-  if (edges.length === 0) return false;
-
-  const dropStart = Date.parse(String(drop.startAt ?? ""));
-  const dropEnd = Date.parse(String(drop.endAt ?? ""));
-  if (!Number.isFinite(dropStart) || !Number.isFinite(dropEnd)) return false;
-
-  for (const edge of edges) {
-    const benefit = asRecord(edge.benefit ?? edge);
-    const benefitId = String(benefit.id ?? "");
-    if (!benefitId) return false;
-    const awardedAt = claimedBenefits.get(benefitId);
-    if (awardedAt === undefined) return false;
-    if (awardedAt < dropStart || awardedAt >= dropEnd) return false;
-  }
-  return true;
-}
 
 function parseCampaignFromDetail(
   id: string,
@@ -111,13 +85,11 @@ function parseCampaignFromDetail(
 
     const required = Number(d.requiredMinutesWatched ?? 0);
     const current = Number(self.currentMinutesWatched ?? 0);
-    // Only use benefit inference when self.isClaimed is undefined (API didn't return it)
-    // If self.isClaimed exists (true or false), trust it over benefit inference
-    // This prevents false positives when multiple drops share the same benefit ID
-    const hasSelfEdge = (d.self || fallbackDrop?.self) && 'isClaimed' in self;
-    const isClaimed = hasSelfEdge
-      ? Boolean(self.isClaimed)
-      : dropClaimedFromBenefits(d, claimedBenefits);
+    // Use self.isClaimed directly (defaults to false when absent).
+    // Benefit inference via claimedBenefits is skipped: campaigns that share the same
+    // benefit IDs across seasons (e.g. OWCS S1 and S2 awarding the same spray) cause
+    // false positives that make unclaimed drops appear completed, skipping them entirely.
+    const isClaimed = Boolean(self.isClaimed);
     // Merge claimAvailable/dropInstanceID from both sources — CampaignDetails
     // often omits these fields even when the Inventory endpoint has them
     const canClaim = Boolean(self.claimAvailable || fallbackSelf.claimAvailable);
