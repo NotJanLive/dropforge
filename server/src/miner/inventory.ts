@@ -623,10 +623,11 @@ export function mergeCampaignProgress(existing: CampaignInfo[], incoming: Campai
               imageUrl: drop.imageUrl || campaign.gameImageUrl || prev?.gameImageUrl || peerImage,
             };
           }
-          // Trust Twitch's isClaimed directly. The old code fell back to prevDrop.isClaimed when
-          // Twitch returned false, which caused stale benefit-inference false-positives to survive
-          // across refreshes. applyPersistedClaimedStatus handles persistence for actually-claimed drops.
-          const isClaimed = drop.isClaimed;
+          // Preserve claimed status across refreshes: Twitch often omits self.isClaimed on claimed
+          // drops after the campaign ends, so we keep prevDrop.isClaimed as the fallback.
+          // applyPersistedClaimedStatus (DB-backed) is the authoritative source; this just avoids
+          // a single-refresh flicker where Twitch hasn't returned isClaimed=true yet.
+          const isClaimed = drop.isClaimed || prevDrop.isClaimed;
           const required = drop.requiredMinutes;
 
           // When claimed, always show full progress. Otherwise use max of current and previous.
