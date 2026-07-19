@@ -165,7 +165,7 @@ export function campaignRemainingMinutesTotal(
   );
 }
 
-/** Mark earlier sequential drops complete when a later drop has watch progress. */
+/** Apply Twitch's current-session progress to its exact drop only. */
 export function applySequentialDropProgress(
   campaign: CampaignInfo,
   activeDropId: string,
@@ -174,38 +174,6 @@ export function applySequentialDropProgress(
 ): number {
   const idx = campaign.drops.findIndex((d) => d.id === activeDropId);
   if (idx < 0) return -1;
-
-  if (usesSharedWatchProgress(campaign.drops)) {
-    const active = campaign.drops[idx];
-    active.currentMinutes = Math.max(active.currentMinutes, currentMinutes);
-    if (requiredMinutes && requiredMinutes > 0) {
-      active.requiredMinutes = requiredMinutes;
-    }
-    for (const d of campaign.drops) {
-      if (d.requiredMinutes > 0 && active.currentMinutes >= d.requiredMinutes) {
-        if (d.id === activeDropId) continue;
-        // A later drop proves the watch milestone was earned, not that the
-        // reward was claimed. Twitch is the sole authority for isClaimed.
-        d.isComplete = true;
-        d.currentMinutes = d.requiredMinutes;
-      }
-    }
-    // Mark as complete when we reach the required minutes
-    if (active.requiredMinutes > 0 && active.currentMinutes >= active.requiredMinutes) {
-      active.isComplete = true;
-    }
-    return idx;
-  }
-
-  // Sequential drops: earlier watch milestones are complete, but remain
-  // unclaimed until Twitch explicitly reports their claim state.
-  for (let i = 0; i < idx; i++) {
-    const d = campaign.drops[i];
-    if (d.requiredMinutes > 0) {
-      d.isComplete = true;
-      d.currentMinutes = d.requiredMinutes;
-    }
-  }
 
   const active = campaign.drops[idx];
   active.currentMinutes = Math.max(active.currentMinutes, currentMinutes);

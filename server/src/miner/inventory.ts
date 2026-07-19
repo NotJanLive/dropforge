@@ -631,10 +631,10 @@ export function mergeCampaignProgress(existing: CampaignInfo[], incoming: Campai
           const isClaimed = drop.isClaimed;
           const required = drop.requiredMinutes;
 
-          // When claimed, always show full progress. Otherwise use max of current and previous.
-          const currentMinutes = isClaimed && required > 0
-            ? required
-            : Math.max(drop.currentMinutes, prevDrop.currentMinutes);
+          // The current Twitch inventory response is authoritative. Carrying a
+          // larger historical value forward can turn an old inferred claim into
+          // permanent fake progress after a reload.
+          const currentMinutes = isClaimed && required > 0 ? required : drop.currentMinutes;
 
           const gameImg = campaign.gameImageUrl || prev?.gameImageUrl || peerImage;
           // isComplete should be derived from claimed status and current progress

@@ -175,7 +175,7 @@ export function OverviewPage() {
               live?.state === "IDLE" && "border-border/60"
             )}
           >
-            <CardHeader className="shrink-0 space-y-3 pb-3 lg:space-y-2 lg:p-3 lg:pb-2">
+            <CardHeader className="shrink-0 space-y-3 pb-3 md:space-y-2 md:p-3 md:pb-2">
               <CardTitle>
                 {twitchLinked === false
                   ? "Miner status"
@@ -197,7 +197,7 @@ export function OverviewPage() {
             </CardHeader>
             <CardContent
               className={cn(
-                "flex flex-col gap-4 pt-0 lg:gap-3 lg:p-3 lg:pt-0",
+                "flex flex-col gap-4 pt-0 md:gap-3 md:p-3 md:pt-0",
                 mining && "lg:min-h-0 lg:flex-1 lg:overflow-hidden"
               )}
             >
@@ -218,28 +218,28 @@ export function OverviewPage() {
               </div>
             ) : mining ? (
               <>
-                <div className="shrink-0 grid gap-4 lg:gap-3 xl:grid-cols-2">
+                <div className="shrink-0 grid gap-4 md:grid-cols-2 md:gap-3">
                   <div className="flex items-start gap-3 min-w-0">
                     <TwitchImage
                       src={resolveGameImageUrl({ gameImageUrl: mining.gameImageUrl, gameName: mining.gameName })}
                       fallbackSrc={resolveGameImageUrl({ gameName: mining.gameName })}
                       alt={mining.gameName}
-                      className="h-16 w-11 rounded object-cover shrink-0 bg-muted lg:h-12 lg:w-9"
-                      fallbackClassName="h-16 w-11 rounded bg-muted shrink-0 lg:h-12 lg:w-9"
+                      className="h-16 w-11 rounded object-cover shrink-0 bg-muted md:h-12 md:w-9"
+                      fallbackClassName="h-16 w-11 rounded bg-muted shrink-0 md:h-12 md:w-9"
                     />
-                    <div className="space-y-2 min-w-0 flex-1 lg:space-y-1">
+                    <div className="space-y-2 min-w-0 flex-1 md:space-y-1">
                       <CompactProgressRow label="Game" value={mining.gameName} />
                       <CompactProgressRow label="Campaign" value={mining.campaignName} />
                       <div className="space-y-1.5">
-                        <div className="flex items-baseline justify-between gap-2 text-sm">
+                        <div className="flex items-baseline justify-between gap-2 text-sm md:text-xs">
                           <span className="text-muted-foreground shrink-0">Progress</span>
                           <span className="font-medium tabular-nums truncate">
                             {mining.campaignProgress.toFixed(1)}% ({mining.campaignClaimed}/{mining.campaignTotal})
                           </span>
                         </div>
-                        <Progress value={mining.campaignProgress} className="h-2" />
+                        <Progress value={mining.campaignProgress} className="h-2 md:h-1.5" />
                         {mining.campaignRemainingMinutes > 0 && (
-                          <p className="text-sm text-primary font-mono tabular-nums">
+                          <p className="text-sm text-primary font-mono tabular-nums md:text-xs">
                             {formatWatchRemaining(campaignRemainingSec)} remaining
                           </p>
                         )}
@@ -252,22 +252,22 @@ export function OverviewPage() {
                       src={mining.dropImageUrl || resolveGameImageUrl({ gameImageUrl: mining.gameImageUrl, gameName: mining.gameName })}
                       fallbackSrc={resolveGameImageUrl({ gameImageUrl: mining.gameImageUrl, gameName: mining.gameName })}
                       alt={mining.dropName}
-                      className="h-16 w-16 rounded object-cover shrink-0 bg-muted lg:h-12 lg:w-12"
-                      fallbackClassName="h-16 w-16 rounded bg-muted shrink-0 lg:h-12 lg:w-12"
+                      className="h-16 w-16 rounded object-cover shrink-0 bg-muted md:h-12 md:w-12"
+                      fallbackClassName="h-16 w-16 rounded bg-muted shrink-0 md:h-12 md:w-12"
                     />
-                    <div className="space-y-2 min-w-0 flex-1 lg:space-y-1">
+                    <div className="space-y-2 min-w-0 flex-1 md:space-y-1">
                       <CompactProgressRow label="Mining now" value={mining.dropName} />
                       <div className="space-y-1.5">
-                        <div className="flex items-baseline justify-between gap-2 text-sm">
+                        <div className="flex items-baseline justify-between gap-2 text-sm md:text-xs">
                           <span className="text-muted-foreground shrink-0">Progress</span>
                           <span className="font-medium tabular-nums">{mining.dropProgress.toFixed(1)}%</span>
                         </div>
-                        <Progress value={mining.dropProgress} className="h-2" />
-                        <p className="text-xs text-muted-foreground tabular-nums">
+                        <Progress value={mining.dropProgress} className="h-2 md:h-1.5" />
+                        <p className="text-xs text-muted-foreground tabular-nums md:text-[11px]">
                           {mining.dropCurrentMinutes}/{mining.dropRequiredMinutes} minutes watched
                         </p>
                         {mining.dropRemainingMinutes > 0 && (
-                          <p className="text-sm text-primary font-mono tabular-nums">
+                          <p className="text-sm text-primary font-mono tabular-nums md:text-xs">
                             {formatWatchRemaining(dropRemainingSec)} remaining
                           </p>
                         )}
@@ -522,7 +522,7 @@ function DropListColumn({
 
 function CompactProgressRow({ label, value }: { label: string; value: string }) {
   return (
-    <p className="text-sm truncate leading-snug">
+    <p className="text-sm truncate leading-snug md:text-xs">
       <span className="text-muted-foreground">{label}: </span>
       <span className="font-medium">{value || "—"}</span>
     </p>

@@ -412,22 +412,6 @@ export class MinerWorker {
     this.onClaimedDropsPersist(this.claimedDropIds);
   }
 
-  /** Scan all campaigns for drops marked isClaimed and persist any new ones. */
-  private persistNewlyClaimedDrops() {
-    let changed = false;
-    for (const campaign of this.allCampaigns) {
-      for (const drop of campaign.drops) {
-        if (drop.isClaimed && !this.claimedDropIds.has(drop.id)) {
-          this.claimedDropIds.add(drop.id);
-          changed = true;
-        }
-      }
-    }
-    if (changed) {
-      this.onClaimedDropsPersist(this.claimedDropIds);
-    }
-  }
-
   /** Infer current drop from campaign inventory when Twitch session context is unavailable.
    *  Matches TDM first_drop: pick the earnable drop with fewest remaining minutes. */
   private inferCurrentDropFromCampaigns(): DropProgress | null {
@@ -458,22 +442,6 @@ export class MinerWorker {
       requiredMinutes: best.requiredMinutes,
       isComplete: best.isComplete,
     };
-  }
-
-  private applyPersistedClaimedStatus() {
-    if (this.claimedDropIds.size === 0) return;
-    for (const campaign of this.allCampaigns) {
-      for (const drop of campaign.drops) {
-        if (this.claimedDropIds.has(drop.id) && !drop.isClaimed) {
-          drop.isClaimed = true;
-          drop.isComplete = true;
-          drop.canClaim = false;
-          if (drop.requiredMinutes > 0) {
-            drop.currentMinutes = drop.requiredMinutes;
-          }
-        }
-      }
-    }
   }
 
   private addLog(level: MinerLogEntry["level"], message: string) {
@@ -895,7 +863,6 @@ export class MinerWorker {
   private applyInventoryList(campaigns: CampaignInfo[]) {
     const merged = mergeCampaignProgress(this.allCampaigns, campaigns);
     this.allCampaigns = finalizeCampaigns(merged);
-    this.applyPersistedClaimedStatus();
     this.refilterMiningCampaigns();
     this.scheduleMaintenanceTriggers();
   }
@@ -1448,7 +1415,6 @@ export class MinerWorker {
       if (campaignId) await this.ensureCampaignDrops(campaignId, dropId);
 
       updateDropMinutesInCampaigns(this.allCampaigns, dropId, currentMinutes, requiredMinutes);
-      this.persistNewlyClaimedDrops();
       this.currentDrop = this.buildDropProgressFromSession(session, dropId, currentMinutes, requiredMinutes);
 
       if (this.currentDrop.campaignId) {
