@@ -56,6 +56,7 @@ export async function channelHasCampaignDrops(
 }
 
 const gzip = promisify(zlib.gzip);
+const spadeUrlCache = new Map<string, string>();
 
 function jsonMinify(data: unknown): string {
   return JSON.stringify(data);
@@ -69,6 +70,18 @@ function twitchStreamHeaders(auth: TwitchAuthSession): Record<string, string> {
     "Accept-Language": "en-US,en;q=0.9",
     Referer: `${client.origin}/`,
     Origin: client.origin,
+  };
+}
+
+/** Headers for Twitch's channel page and its direct Spade collector. */
+function twitchWatchHeaders(auth: TwitchAuthSession): Record<string, string> {
+  const client = getClientType();
+  return {
+    Accept: "*/*",
+    "Accept-Language": "en-US,en;q=0.9",
+    "Client-Id": client.clientId,
+    "User-Agent": client.userAgent,
+    "X-Device-Id": auth.deviceId,
   };
 }
 
@@ -123,6 +136,51 @@ export function encodeSpadePayload(payload: Record<string, unknown>): Promise<st
   return gzip(Buffer.from(jsonMinify([payload]), "utf8")).then((buf) => buf.toString("base64"));
 }
 
+function encodeDirectSpadePayload(payload: unknown): string {
+  return Buffer.from(jsonMinify(payload), "utf8").toString("base64");
+}
+
+async function resolveSpadeUrl(auth: TwitchAuthSession, channelLogin: string): Promise<string | null> {
+  const cached = spadeUrlCache.get(channelLogin.toLowerCase());
+  if (cached) return cached;
+
+  const client = getClientType();
+  const pageHeaders = {
+    ...twitchWatchHeaders(auth),
+    Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+  };
+  const findSpadeUrl = (text: string): string | null => {
+    const match = text.match(/"spade_?url"\s*:\s*"(https:[^"\\]+)"/i);
+    return match ? match[1].replace(/\\u002F|\\\//g, "/") : null;
+  };
+
+  try {
+    const page = await fetch(`${client.origin}/${encodeURIComponent(channelLogin)}`, {
+      headers: pageHeaders,
+      redirect: "follow",
+    });
+    if (!page.ok) return null;
+    const pageText = await page.text();
+    const direct = findSpadeUrl(pageText);
+    if (direct) {
+      spadeUrlCache.set(channelLogin.toLowerCase(), direct);
+      return direct;
+    }
+
+    const settingsMatch = pageText.match(
+      /src="(https:\/\/[\w.]+\/config\/settings\.[0-9a-f]{32}\.js)"/i
+    );
+    if (!settingsMatch) return null;
+    const settings = await fetch(settingsMatch[1], { headers: pageHeaders });
+    if (!settings.ok) return null;
+    const discovered = findSpadeUrl(await settings.text());
+    if (discovered) spadeUrlCache.set(channelLogin.toLowerCase(), discovered);
+    return discovered;
+  } catch {
+    return null;
+  }
+}
+
 /** Match DevilXD/TwitchDropsMiner channel.py Stream._gql_payload properties. */
 export async function buildMinuteWatchedPayload(
   auth: TwitchAuthSession,
@@ -167,9 +225,48 @@ export async function sendWatch(
     return { ok: false, status: 0, errors: ["missing broadcast id"] };
   }
 
-  const gql = new GqlClient(auth);
-  const payload = await buildMinuteWatchedPayload(auth, channel, broadcastId);
-  return gql.sendWatchPayload(payload);
+  const payload = {
+    event: "minute-watched",
+    properties: {
+      broadcast_id: String(broadcastId),
+      channel_id: String(channel.id),
+      channel: channel.login,
+      client_time: new Date().toISOString(),
+      game: channel.gameName ?? "",
+      game_id: channel.gameId ?? "",
+      hidden: false,
+      is_live: true,
+      live: true,
+      logged_in: true,
+      minutes_logged: 1,
+      muted: false,
+      user_id: auth.userId,
+    },
+  };
+  const spadeUrl = await resolveSpadeUrl(auth, channel.login);
+  if (!spadeUrl) {
+    return { ok: false, status: 0, errors: ["Spade endpoint not found"] };
+  }
+
+  try {
+    const res = await fetch(spadeUrl, {
+      method: "POST",
+      headers: twitchWatchHeaders(auth),
+      body: new URLSearchParams({ data: encodeDirectSpadePayload([payload]) }),
+    });
+    if (!res.ok) spadeUrlCache.delete(channel.login.toLowerCase());
+    return {
+      ok: res.status === 204,
+      status: res.status,
+      errors: res.ok ? [] : [`HTTP status ${res.status}`],
+    };
+  } catch (err) {
+    return {
+      ok: false,
+      status: 0,
+      errors: [err instanceof Error ? err.message : "Spade request failed"],
+    };
+  }
 }
 
 /**
