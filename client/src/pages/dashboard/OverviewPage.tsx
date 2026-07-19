@@ -104,8 +104,8 @@ export function OverviewPage() {
   });
 
   return (
-    <DashboardPage className="gap-4">
-      <div className="shrink-0 space-y-4">
+    <DashboardPage className="gap-4 lg:gap-3">
+      <div className="shrink-0 space-y-4 lg:space-y-3">
         {twitchLinked === false && (
           <Card className="border-amber-500/30 bg-amber-500/5">
             <CardContent className="p-4 sm:p-5">
@@ -155,8 +155,8 @@ export function OverviewPage() {
         </div>
       </div>
 
-      <DashboardScrollArea className="space-y-4 pb-2 lg:flex lg:min-h-0 lg:flex-1 lg:flex-col lg:overflow-hidden">
-        <div className="grid shrink-0 gap-3 sm:grid-cols-2 sm:gap-4 md:grid-cols-3">
+      <DashboardScrollArea className="space-y-4 pb-2 lg:space-y-3 lg:flex lg:min-h-0 lg:flex-1 lg:flex-col lg:overflow-hidden">
+        <div className="grid shrink-0 gap-3 sm:grid-cols-2 sm:gap-4 lg:gap-3 md:grid-cols-3">
           <StatCard icon={Activity} label="Status" value={live?.state ?? "—"} />
           <StatCard icon={Radio} label="Watching" value={live?.watchingChannel ?? "None"} />
           <StatCard
@@ -166,8 +166,8 @@ export function OverviewPage() {
           />
         </div>
 
-        <div className="grid gap-4 lg:min-h-0 lg:flex-1 lg:grid-cols-[minmax(0,1fr)_300px]">
-        <div className="order-1 flex min-w-0 flex-col gap-4 lg:min-h-0 lg:flex-1 lg:overflow-hidden">
+        <div className="grid gap-4 lg:min-h-0 lg:flex-1 lg:grid-cols-[minmax(0,1fr)_300px] lg:grid-rows-[minmax(0,1fr)] lg:gap-3">
+        <div className="order-1 flex min-w-0 flex-col gap-4 lg:min-h-0 lg:flex-1 lg:gap-3 lg:overflow-hidden">
           <Card
             className={cn(
               "flex flex-col border-primary/25",
@@ -175,7 +175,7 @@ export function OverviewPage() {
               live?.state === "IDLE" && "border-border/60"
             )}
           >
-            <CardHeader className="shrink-0 space-y-3 pb-3">
+            <CardHeader className="shrink-0 space-y-3 pb-3 lg:space-y-2 lg:p-3 lg:pb-2">
               <CardTitle>
                 {twitchLinked === false
                   ? "Miner status"
@@ -197,7 +197,7 @@ export function OverviewPage() {
             </CardHeader>
             <CardContent
               className={cn(
-                "flex flex-col gap-4 pt-0",
+                "flex flex-col gap-4 pt-0 lg:gap-3 lg:p-3 lg:pt-0",
                 mining && "lg:min-h-0 lg:flex-1 lg:overflow-hidden"
               )}
             >
@@ -218,16 +218,16 @@ export function OverviewPage() {
               </div>
             ) : mining ? (
               <>
-                <div className="shrink-0 grid gap-4 xl:grid-cols-2">
+                <div className="shrink-0 grid gap-4 lg:gap-3 xl:grid-cols-2">
                   <div className="flex items-start gap-3 min-w-0">
                     <TwitchImage
                       src={resolveGameImageUrl({ gameImageUrl: mining.gameImageUrl, gameName: mining.gameName })}
                       fallbackSrc={resolveGameImageUrl({ gameName: mining.gameName })}
                       alt={mining.gameName}
-                      className="h-16 w-11 rounded object-cover shrink-0 bg-muted"
-                      fallbackClassName="h-16 w-11 rounded bg-muted shrink-0"
+                      className="h-16 w-11 rounded object-cover shrink-0 bg-muted lg:h-12 lg:w-9"
+                      fallbackClassName="h-16 w-11 rounded bg-muted shrink-0 lg:h-12 lg:w-9"
                     />
-                    <div className="space-y-2 min-w-0 flex-1">
+                    <div className="space-y-2 min-w-0 flex-1 lg:space-y-1">
                       <CompactProgressRow label="Game" value={mining.gameName} />
                       <CompactProgressRow label="Campaign" value={mining.campaignName} />
                       <div className="space-y-1.5">
@@ -252,10 +252,10 @@ export function OverviewPage() {
                       src={mining.dropImageUrl || resolveGameImageUrl({ gameImageUrl: mining.gameImageUrl, gameName: mining.gameName })}
                       fallbackSrc={resolveGameImageUrl({ gameImageUrl: mining.gameImageUrl, gameName: mining.gameName })}
                       alt={mining.dropName}
-                      className="h-16 w-16 rounded object-cover shrink-0 bg-muted"
-                      fallbackClassName="h-16 w-16 rounded bg-muted shrink-0"
+                      className="h-16 w-16 rounded object-cover shrink-0 bg-muted lg:h-12 lg:w-12"
+                      fallbackClassName="h-16 w-16 rounded bg-muted shrink-0 lg:h-12 lg:w-12"
                     />
-                    <div className="space-y-2 min-w-0 flex-1">
+                    <div className="space-y-2 min-w-0 flex-1 lg:space-y-1">
                       <CompactProgressRow label="Mining now" value={mining.dropName} />
                       <div className="space-y-1.5">
                         <div className="flex items-baseline justify-between gap-2 text-sm">
@@ -276,7 +276,7 @@ export function OverviewPage() {
                   </div>
                 </div>
 
-                <div className="grid gap-4 border-t border-border/60 pt-3 sm:grid-cols-2 lg:min-h-0 lg:flex-1 lg:grid-rows-1 lg:overflow-hidden">
+                <div className="grid gap-4 border-t border-border/60 pt-3 sm:grid-cols-2 lg:min-h-0 lg:flex-1 lg:grid-rows-1 lg:gap-3 lg:pt-2 lg:overflow-hidden">
                   <DropListColumn
                     title="Claimed"
                     emptyText="No drops claimed yet"
@@ -307,16 +307,16 @@ export function OverviewPage() {
           </Card>
 
           <Card className="shrink-0">
-            <CardHeader className="pb-3">
+            <CardHeader className="pb-3 lg:p-3 lg:pb-2">
               <CardTitle className="flex items-center gap-2 text-base">
                 <Terminal className="h-4 w-4" />
                 Output
               </CardTitle>
             </CardHeader>
-            <CardContent className="pt-0">
+            <CardContent className="pt-0 lg:p-3 lg:pt-0">
               <div
                 ref={logRef}
-                className="min-h-[5rem] max-h-28 overflow-y-auto rounded-lg border border-border/60 bg-black/40 p-3 font-mono text-xs space-y-1 dashboard-scroll lg:max-h-32"
+                className="min-h-[5rem] max-h-28 overflow-y-auto rounded-lg border border-border/60 bg-black/40 p-3 font-mono text-xs space-y-1 dashboard-scroll lg:min-h-[4rem] lg:max-h-24 lg:p-2"
               >
                 {(live?.logs ?? []).map((entry, i) => (
                   <LogLine key={`${entry.time}-${i}`} entry={entry} />
@@ -481,7 +481,7 @@ function DropListColumn({
 }) {
   const gameImg = resolveGameImageUrl({ gameImageUrl, gameName });
   return (
-    <div className="flex min-h-0 min-w-0 flex-col gap-2.5 lg:h-full lg:overflow-hidden">
+      <div className="flex min-h-0 min-w-0 flex-col gap-2.5 lg:h-full lg:gap-2 lg:overflow-hidden">
       <p className="shrink-0 text-sm font-medium text-muted-foreground">{title}</p>
       <div className="space-y-2 lg:min-h-0 lg:flex-1 lg:overflow-y-auto lg:pr-1">
         {drops.length === 0 && <p className="text-xs text-muted-foreground">{emptyText}</p>}
@@ -489,7 +489,7 @@ function DropListColumn({
           <div
             key={drop.id}
             className={cn(
-              "flex items-center gap-2 rounded-lg border p-2",
+              "flex items-center gap-2 rounded-lg border p-2 lg:gap-1.5 lg:p-1.5",
               variant === "claimed" ? "border-emerald-500/30 bg-emerald-500/5" : "border-border/60"
             )}
           >
@@ -502,8 +502,8 @@ function DropListColumn({
               src={drop.imageUrl || gameImg}
               fallbackSrc={gameImg}
               alt={drop.name}
-              className="h-10 w-10 rounded object-cover shrink-0 bg-muted"
-              fallbackClassName="h-10 w-10 rounded bg-muted shrink-0"
+              className="h-10 w-10 rounded object-cover shrink-0 bg-muted lg:h-8 lg:w-8"
+              fallbackClassName="h-10 w-10 rounded bg-muted shrink-0 lg:h-8 lg:w-8"
             />
             <div className="min-w-0 flex-1">
               <p className="text-xs font-medium truncate">{drop.name}</p>
@@ -541,9 +541,9 @@ function ProgressRow({ label, value }: { label: string; value: string }) {
 function StatCard({ icon: Icon, label, value }: { icon: typeof Activity; label: string; value: string }) {
   return (
     <Card>
-      <CardContent className="p-4 sm:p-5">
-        <div className="flex items-center gap-3">
-          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary/15">
+      <CardContent className="p-4 sm:p-5 lg:p-3">
+        <div className="flex items-center gap-3 lg:gap-2">
+          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary/15 lg:h-8 lg:w-8">
             <Icon className="h-4 w-4 text-primary" />
           </div>
           <div className="min-w-0 flex flex-col justify-center gap-0.5">

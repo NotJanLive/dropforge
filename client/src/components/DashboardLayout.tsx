@@ -137,7 +137,7 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
         </div>
       </aside>
 
-      <main className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden p-3 sm:p-4 md:p-6 lg:p-8">
+      <main className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden p-3 sm:p-4 md:p-6 lg:p-5">
         <div className="mb-3 flex shrink-0 items-center gap-2 lg:hidden">
           <Button
             type="button"
