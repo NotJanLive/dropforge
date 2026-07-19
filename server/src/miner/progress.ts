@@ -52,16 +52,19 @@ export function watchRemainingSecondsFromMinutes(
 
 /** Milestone campaigns (Overwatch etc.) share one watch counter across drops. */
 export function usesSharedWatchProgress(drops: CampaignDrop[]): boolean {
-  if (drops.some((d) => (d.preconditionDropIds?.length ?? 0) > 0)) return false;
-
   const timed = drops.filter((d) => d.requiredMinutes > 0);
   if (timed.length <= 1) return true;
 
   const activeCount = timed.filter((d) => d.currentMinutes > 0 && !d.isClaimed).length;
   if (activeCount > 1) return false;
 
-  const thresholds = timed.map((d) => d.requiredMinutes).sort((a, b) => a - b);
-  return thresholds[thresholds.length - 1] > thresholds[0];
+  const thresholds = timed.map((d) => d.requiredMinutes);
+  // A set of distinct increasing thresholds (30, 60, 120 … 600) represents
+  // cumulative campaign watch time. Twitch may still attach prerequisite links
+  // to those rewards to control their claim order; the links must not make the
+  // campaign total become the sum of every milestone.
+  return new Set(thresholds).size === thresholds.length &&
+    Math.max(...thresholds) > Math.min(...thresholds);
 }
 
 /** Cumulative watch position in milestone campaigns. */
@@ -140,6 +143,12 @@ export function campaignRemainingMinutesTotal(
   const unclaimed = drops.filter((d) => !d.isClaimed && d.requiredMinutes > 0);
   if (unclaimed.length === 0) return 0;
 
+  if (usesSharedWatchProgress(drops)) {
+    const target = Math.max(...drops.map((d) => d.requiredMinutes));
+    const watched = watchedCumulativeMinutes(campaign, activeDropId);
+    return Math.max(0, target - watched);
+  }
+
   const hasPreconditions = drops.some((d) => (d.preconditionDropIds?.length ?? 0) > 0);
   if (hasPreconditions) {
     let maxRemaining = 0;
@@ -147,12 +156,6 @@ export function campaignRemainingMinutesTotal(
       maxRemaining = Math.max(maxRemaining, dropTotalRemainingMinutes(campaign, d.id));
     }
     return maxRemaining;
-  }
-
-  if (usesSharedWatchProgress(drops)) {
-    const target = Math.max(...unclaimed.map((d) => d.requiredMinutes));
-    const watched = watchedCumulativeMinutes(campaign, activeDropId);
-    return Math.max(0, target - watched);
   }
 
   return Math.max(
@@ -196,8 +199,17 @@ export function computeCampaignMetrics(
   const total = campaign.drops.length;
   const claimedDrops = campaign.drops.filter((d) => d.isClaimed).length;
 
+  const timedDrops = campaign.drops.filter((d) => d.requiredMinutes > 0);
+  const sharedWatchProgress = usesSharedWatchProgress(campaign.drops);
   const progress =
-    total > 0
+    sharedWatchProgress && timedDrops.length > 0
+      ? Math.min(
+          100,
+          (watchedCumulativeMinutes(campaign, activeDropId) /
+            Math.max(...timedDrops.map((d) => d.requiredMinutes))) *
+            100
+        )
+      : total > 0
       ? (campaign.drops.reduce((sum, d) => {
           if (d.requiredMinutes <= 0) return sum + (d.isClaimed || isDropEarned(d, campaign, activeDropId) ? 1 : 0);
           if (d.isClaimed || isDropEarned(d, campaign, activeDropId)) return sum + 1;
