@@ -13,6 +13,7 @@ import {
   CHANNEL_REFRESH_MS,
   LOOP_INTERVAL_MS,
   INVENTORY_MAINTENANCE_MS,
+  IDLE_INVENTORY_REFRESH_MS,
   MAX_MINER_LOGS,
 } from "./constants.js";
 import { PubSubPool, userTopics, channelTopics } from "./pubsub.js";
@@ -814,18 +815,24 @@ export class MinerWorker {
   private async loopIteration() {
     const now = Date.now();
 
+    const maintenanceDue = this.isInventoryMaintenanceDue(now);
+    const idleRefreshDue = this.isIdleInventoryRefreshDue(now);
     if (
       (this.forceInventoryRefresh ||
         this.allCampaigns.length === 0 ||
-        this.isInventoryMaintenanceDue(now)) &&
+        maintenanceDue ||
+        idleRefreshDue) &&
       !this.inventoryRefreshing
     ) {
       if (
-        this.isInventoryMaintenanceDue(now) &&
+        maintenanceDue &&
         !this.forceInventoryRefresh &&
         this.allCampaigns.length > 0
       ) {
         this.addLog("info", "Scheduled inventory refresh (hourly check for new campaigns)");
+        this.forceInventoryRefresh = true;
+      } else if (idleRefreshDue && !this.forceInventoryRefresh) {
+        this.addLog("info", "Scheduled inventory refresh (idle check for new campaigns)");
         this.forceInventoryRefresh = true;
       }
       await this.refreshInventory();
@@ -847,6 +854,16 @@ export class MinerWorker {
       return true;
     }
     return false;
+  }
+
+  /** Keep idle users responsive to newly opened drops without interrupting active mining. */
+  private isIdleInventoryRefreshDue(now: number): boolean {
+    return (
+      this.miningCampaigns.length === 0 &&
+      !this.watching &&
+      this.lastInventoryRefresh > 0 &&
+      now - this.lastInventoryRefresh >= IDLE_INVENTORY_REFRESH_MS
+    );
   }
 
   private scheduleMaintenanceTriggers() {

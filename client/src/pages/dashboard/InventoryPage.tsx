@@ -254,7 +254,7 @@ export function InventoryPage() {
                       <div
                         key={drop.id}
                         className={cn(
-                          "shrink-0 w-28 rounded-lg border p-2 text-center space-y-2",
+                          "shrink-0 w-28 rounded-lg border p-2 text-center space-y-2 sm:w-36 sm:p-3",
                           st === "claimed" && "border-emerald-500/40 bg-emerald-500/5",
                           st === "ready" && "border-amber-500/40 bg-amber-500/5",
                           isActive && "border-primary/50 bg-primary/5 ring-1 ring-primary/30",
@@ -266,10 +266,10 @@ export function InventoryPage() {
                           src={dropImageUrl(drop, campaign)}
                           fallbackSrc={gameImg}
                           alt={drop.name}
-                          className="h-16 w-16 mx-auto rounded object-cover bg-muted"
-                          fallbackClassName="h-16 w-16 mx-auto rounded bg-muted"
+                          className="h-16 w-16 mx-auto rounded object-cover bg-muted sm:h-[4.5rem] sm:w-[4.5rem]"
+                          fallbackClassName="h-16 w-16 mx-auto rounded bg-muted sm:h-[4.5rem] sm:w-[4.5rem]"
                         />
-                        <p className="text-[11px] font-medium leading-tight line-clamp-2 min-h-[2rem]">
+                        <p className="min-h-[2rem] text-[11px] font-medium leading-tight line-clamp-2 sm:min-h-[2.75rem] sm:text-xs sm:line-clamp-3">
                           {drop.name}
                         </p>
                         <p

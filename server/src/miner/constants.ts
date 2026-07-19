@@ -66,6 +66,8 @@ export const CAMPAIGN_DETAILS_CHUNK_SIZE = 20;
 export const CHANNEL_REFRESH_MS = 5 * 60 * 1000;
 /** Full Twitch inventory reload interval (TwitchDropsMiner maintenance task). */
 export const INVENTORY_MAINTENANCE_MS = 60 * 60 * 1000;
+/** Idle miners poll more frequently so newly available campaigns start promptly. */
+export const IDLE_INVENTORY_REFRESH_MS = 5 * 60 * 1000;
 export const LOOP_INTERVAL_MS = 15 * 1000;
 
 export const WEBSOCKET_TOPICS = {

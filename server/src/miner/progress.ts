@@ -184,8 +184,8 @@ export function applySequentialDropProgress(
     for (const d of campaign.drops) {
       if (d.requiredMinutes > 0 && active.currentMinutes >= d.requiredMinutes) {
         if (d.id === activeDropId) continue;
-        // If Twitch is tracking a later drop, earlier ones must be claimed
-        d.isClaimed = true;
+        // A later drop proves the watch milestone was earned, not that the
+        // reward was claimed. Twitch is the sole authority for isClaimed.
         d.isComplete = true;
         d.currentMinutes = d.requiredMinutes;
       }
@@ -197,11 +197,11 @@ export function applySequentialDropProgress(
     return idx;
   }
 
-  // Sequential drops: if Twitch is tracking drop at idx, all earlier drops are claimed
+  // Sequential drops: earlier watch milestones are complete, but remain
+  // unclaimed until Twitch explicitly reports their claim state.
   for (let i = 0; i < idx; i++) {
     const d = campaign.drops[i];
     if (d.requiredMinutes > 0) {
-      d.isClaimed = true;
       d.isComplete = true;
       d.currentMinutes = d.requiredMinutes;
     }
@@ -291,15 +291,14 @@ export function splitCampaignDrops(
   });
 
   const claimed = campaign.drops
-    .filter((d) => d.id !== activeDropId && (d.isClaimed || isDropEarned(d, campaign, activeDropId)))
+    .filter((d) => d.id !== activeDropId && d.isClaimed)
     .map(toDropView);
 
   const upcoming = campaign.drops
     .filter(
       (d) =>
         d.id !== activeDropId &&
-        !d.isClaimed &&
-        !isDropEarned(d, campaign, activeDropId)
+        !d.isClaimed
     )
     .map(toDropView);
 
