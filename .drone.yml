@@ -16,40 +16,21 @@ steps:
       - cp server/package.json deploy/server/
       - cd deploy && npm install --omit=dev
 
-  # Copy the new build over the existing application volume.  Do not clear
-  # /app: it contains server/data/dropforge.db, the persistent user database.
-  - name: Upload
-    image: appleboy/drone-scp
-    settings:
-      host:
-        from_secret: address
-      username: root
-      password:
-        from_secret: ssh_password
-      source: deploy/
-      target: /var/lib/docker/volumes/dropforge/_data
-      strip_components: 1
-
   - name: Deploy
-    image: appleboy/drone-ssh
+    image: docker:27-cli
     environment:
       SESSION_SECRET:
         from_secret: session_secret
       ENCRYPTION_KEY:
         from_secret: encryption_key
-    settings:
-      host:
-        from_secret: address
-      username: root
-      password:
-        from_secret: ssh_password
-      envs:
-        - SESSION_SECRET
-        - ENCRYPTION_KEY
-      script:
-        - docker stop dropforge || true
-        - docker rm dropforge || true
-        - |
+    commands:
+      # Keep server/data/dropforge.db in the existing volume. The archive only
+      # updates build files and does not remove files that are not in deploy/.
+      - docker volume create dropforge
+      - tar -C deploy -cf - . | docker run --rm -i -v dropforge:/target alpine sh -c "tar -C /target -xf -"
+      - docker stop dropforge || true
+      - docker rm dropforge || true
+      - |
         docker run -d \
           --name dropforge \
           --restart always \
