@@ -92,6 +92,7 @@ export class MinerWorker {
   private lastCampaignCount = -1;
   private claiming = false;
   private watchGraceUntil = 0;
+  private watchInFlight = false;
   private maintenanceTriggers: number[] = [];
   private claimedDropIds: Set<string>;
 
@@ -178,7 +179,6 @@ export class MinerWorker {
     const focused = this.getFocusedCampaigns();
     if (focused.length === 0) return;
 
-    const miningIds = new Set(focused.map((c) => c.id));
     const concurrency = 10;
 
     for (let i = 0; i < this.channels.length; i += concurrency) {
@@ -190,21 +190,14 @@ export class MinerWorker {
             return;
           }
 
-          const fromDirectory =
-            !ch.aclPreferred &&
-            ch.campaignIds.some((id) => miningIds.has(id)) &&
-            channelMatchesCampaigns(ch, focused);
-
-          if (fromDirectory) {
-            ch.dropsEnabled = true;
-            return;
-          }
-
           if (!ch.id || !/^\d+$/.test(ch.id)) {
             ch.dropsEnabled = false;
             return;
           }
 
+          // Directory results only mean that a channel has *some* drops.
+          // They are not campaign-specific, so never use them as evidence
+          // that this account can earn the focused campaign.
           ch.dropsEnabled = await channelHasCampaignDrops(this.auth, ch.id, focused);
         })
       );
@@ -754,13 +747,9 @@ export class MinerWorker {
 
         const focused = this.getFocusedCampaigns();
         if (info.channelId && focused.length > 0) {
-          const fromDirectory =
-            !ch.aclPreferred &&
-            ch.campaignIds.some((id) => focused.some((c) => c.id === id)) &&
-            channelMatchesCampaigns(ch, focused);
-          const hasDrops =
-            fromDirectory ||
-            (await channelHasCampaignDrops(this.auth, info.channelId, focused));
+          // The game directory's DROPS_ENABLED flag is generic. Confirm the
+          // exact campaign against the channel before starting a watch session.
+          const hasDrops = await channelHasCampaignDrops(this.auth, info.channelId, focused);
           ch.dropsEnabled = hasDrops;
           if (!hasDrops) {
             this.addLog(
@@ -1489,6 +1478,19 @@ export class MinerWorker {
   }
 
   private async performWatch() {
+    // setInterval, channel refreshes, and a just-completed switch can all ask
+    // for a watch tick at once. Serializing this prevents stale responses from
+    // one tick from clearing/replacing the session selected by another.
+    if (this.watchInFlight) return;
+    this.watchInFlight = true;
+    try {
+      await this.performWatchInternal();
+    } finally {
+      this.watchInFlight = false;
+    }
+  }
+
+  private async performWatchInternal() {
     if (!this.running) return;
 
     if (this.miningCampaigns.length === 0) {

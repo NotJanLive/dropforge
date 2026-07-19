@@ -15,11 +15,13 @@ function asArray<T>(value: unknown): T[] {
 }
 
 function campaignMatchesDropEntry(entry: Record<string, unknown>, campaign: CampaignInfo): boolean {
-  if (campaign.id) {
-    const dropCampaign = asRecord(entry.dropCampaign);
-    const id = String(entry.id ?? dropCampaign.id ?? "");
-    if (id && id === campaign.id) return true;
-  }
+  const dropCampaign = asRecord(entry.dropCampaign);
+  const id = String(entry.id ?? dropCampaign.id ?? "");
+
+  // A game can have several concurrent campaigns.  When Twitch supplies a
+  // campaign id, it is authoritative; accepting a same-game campaign here
+  // causes the miner to watch a channel that cannot credit the focused drop.
+  if (id) return Boolean(campaign.id && id === campaign.id);
 
   const game = asRecord(entry.game ?? asRecord(entry.dropCampaign).game);
   const gn = String(game.displayName ?? game.name ?? "").toLowerCase();
