@@ -16,21 +16,40 @@ steps:
       - cp server/package.json deploy/server/
       - cd deploy && npm install --omit=dev
 
+  # Copy the new build over the existing application volume.  Do not clear
+  # /app: it contains server/data/dropforge.db, the persistent user database.
+  - name: Upload
+    image: appleboy/drone-scp
+    settings:
+      host:
+        from_secret: address
+      username: root
+      password:
+        from_secret: ssh_password
+      source: deploy/
+      target: /var/lib/docker/volumes/dropforge/_data
+      strip_components: 1
+
   - name: Deploy
-    image: docker:27-cli
+    image: appleboy/drone-ssh
     environment:
       SESSION_SECRET:
         from_secret: session_secret
       ENCRYPTION_KEY:
         from_secret: encryption_key
-    commands:
-      - docker ps
-      - docker volume create dropforge
-      - docker run --rm -v dropforge:/target alpine sh -c "rm -rf /target/*"
-      - tar -C deploy -cf - . | docker run --rm -i -v dropforge:/target alpine sh -c "tar -C /target -xf -"
-      - docker stop dropforge || true
-      - docker rm dropforge || true
-      - |
+    settings:
+      host:
+        from_secret: address
+      username: root
+      password:
+        from_secret: ssh_password
+      envs:
+        - SESSION_SECRET
+        - ENCRYPTION_KEY
+      script:
+        - docker stop dropforge || true
+        - docker rm dropforge || true
+        - |
         docker run -d \
           --name dropforge \
           --restart always \
