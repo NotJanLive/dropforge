@@ -367,7 +367,10 @@ export class MinerWorker {
       currentDrop: this.currentDrop,
       activeMining,
       campaigns: this.allCampaigns,
-      channels: this.getDisplayChannels(),
+      // Candidate channels are useful only while the miner is actively
+      // searching or watching. Do not show a previous campaign's list while
+      // the worker is idle.
+      channels: this.state === "IDLE" && !this.watching ? [] : this.getDisplayChannels(),
       logs: this.logs,
       websocketConnections: this.wsConnections,
       lastWatchAt: this.lastWatchAt,

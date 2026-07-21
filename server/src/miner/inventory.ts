@@ -80,16 +80,32 @@ function parseCampaignFromDetail(
     // If CampaignDetails didn't return self edge, try to get it from fallback (Campaigns query)
     const fallbackDrops = asArray<Record<string, unknown>>(fallback?.timeBasedDrops ?? []);
     const fallbackDrop = fallbackDrops.find((fd) => String(fd.id) === String(d.id));
-    const self = asRecord(d.self ?? fallbackDrop?.self);
+    const rawSelf = d.self ?? fallbackDrop?.self;
+    const self = asRecord(rawSelf);
     const fallbackSelf = asRecord(fallbackDrop?.self);
 
     const required = Number(d.requiredMinutesWatched ?? 0);
     const current = Number(self.currentMinutesWatched ?? 0);
-    // Use self.isClaimed directly (defaults to false when absent).
-    // Benefit inference via claimedBenefits is skipped: campaigns that share the same
-    // benefit IDs across seasons (e.g. OWCS S1 and S2 awarding the same spray) cause
-    // false positives that make unclaimed drops appear completed, skipping them entirely.
-    const isClaimed = Boolean(self.isClaimed);
+    const hasSelf = rawSelf !== undefined && rawSelf !== null && Object.keys(self).length > 0;
+    const benefitAwardTimes = asArray<Record<string, unknown>>(d.benefitEdges)
+      .map((edge) => String(asRecord(edge.benefit).id ?? ""))
+      .filter(Boolean)
+      .map((benefitId) => claimedBenefits.get(benefitId));
+    const dropStartsAt = Date.parse(String(d.startAt ?? fallbackDrop?.startAt ?? ""));
+    const dropEndsAt = Date.parse(String(d.endAt ?? fallbackDrop?.endAt ?? ""));
+    const benefitAwardedForThisDrop =
+      benefitAwardTimes.length > 0 &&
+      Number.isFinite(dropStartsAt) &&
+      Number.isFinite(dropEndsAt) &&
+      benefitAwardTimes.every((awardedAt) =>
+        awardedAt !== undefined &&
+        awardedAt >= dropStartsAt &&
+        awardedAt < dropEndsAt);
+    // CampaignDetails sometimes omits the self edge for already-earned drops.
+    // In that case use Twitch's award history, scoped to this drop's own time
+    // window. This matches TwitchDropsMiner and avoids matching an identical
+    // benefit awarded by an earlier season.
+    const isClaimed = hasSelf ? Boolean(self.isClaimed) : benefitAwardedForThisDrop;
     // Merge claimAvailable/dropInstanceID from both sources — CampaignDetails
     // often omits these fields even when the Inventory endpoint has them
     const canClaim = Boolean(self.claimAvailable || fallbackSelf.claimAvailable);
