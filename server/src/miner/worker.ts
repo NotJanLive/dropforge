@@ -862,9 +862,29 @@ export class MinerWorker {
 
   private applyInventoryList(campaigns: CampaignInfo[]) {
     const merged = mergeCampaignProgress(this.allCampaigns, campaigns);
+    this.restoreConfirmedClaims(merged);
     this.allCampaigns = finalizeCampaigns(merged);
     this.refilterMiningCampaigns();
     this.scheduleMaintenanceTriggers();
+  }
+
+  /**
+   * Twitch can briefly omit isClaimed from a fresh inventory response after a
+   * successful ClaimDrop mutation. Restore only claims this worker confirmed;
+   * watched minutes alone must never be treated as a claim.
+   */
+  private restoreConfirmedClaims(campaigns: CampaignInfo[]) {
+    if (this.claimedDropIds.size === 0) return;
+
+    for (const campaign of campaigns) {
+      for (const drop of campaign.drops) {
+        if (!this.claimedDropIds.has(drop.id)) continue;
+        drop.isClaimed = true;
+        drop.isComplete = true;
+        drop.canClaim = false;
+        if (drop.requiredMinutes > 0) drop.currentMinutes = drop.requiredMinutes;
+      }
+    }
   }
 
   private async refreshInventory() {
@@ -969,6 +989,7 @@ export class MinerWorker {
       this.settings.priorityMode
     );
     this.validatePinnedCampaign();
+    if (this.miningCampaigns.length === 0) this.channels = [];
   }
 
   private resolveIdleMessage(): string {
