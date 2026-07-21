@@ -73,7 +73,7 @@ export function DropListsEditor({
           <CardDescription>
             {activeOnlyHint
               ? "Add active games with drop campaigns. The miner walks the priority list top to bottom."
-              : "Choose games to prioritize or exclude. All eligible campaigns for selected games are considered."}
+              : "Choose games to prioritize or exclude."}
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">

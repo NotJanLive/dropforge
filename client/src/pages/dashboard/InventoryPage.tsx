@@ -136,7 +136,7 @@ export function InventoryPage() {
         <div className="min-w-0 flex-1">
           <h1 className="text-xl font-semibold sm:text-2xl">Inventory</h1>
           <p className="text-sm text-muted-foreground sm:text-base">
-            All drop campaigns and rewards — filters match TwitchDropsMiner.
+            All available drop campaigns and rewards for your linked Twitch account.
             {allCampaigns.length > 0 && (
               <span className="block text-xs mt-1">
                 {allCampaigns.length} loaded · {visibleCampaigns.length} visible with current filters
