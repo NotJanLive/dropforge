@@ -73,7 +73,7 @@ export function DropListsEditor({
           <CardDescription>
             {activeOnlyHint
               ? "Add active games with drop campaigns. The miner walks the priority list top to bottom."
-              : "Like Twitch Drops Miner — game lists only, all campaigns for those games are mined."}
+              : "Choose games to prioritize or exclude. All eligible campaigns for selected games are considered."}
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -137,7 +137,7 @@ export function DropListsEditor({
       <Card>
         <CardHeader>
           <CardTitle className="text-base">Priority list</CardTitle>
-          <CardDescription>Mined in order — top first</CardDescription>
+          <CardDescription>Games are mined from top to bottom</CardDescription>
         </CardHeader>
         <CardContent className="space-y-2 min-h-[8rem]">
           {priorityGames.length === 0 && (
@@ -203,7 +203,7 @@ export function DropListsEditor({
       <Card>
         <CardHeader>
           <CardTitle className="text-base">Ignore list</CardTitle>
-          <CardDescription>Games the miner will never touch</CardDescription>
+          <CardDescription>Excluded games are never selected for mining</CardDescription>
         </CardHeader>
         <CardContent className="space-y-2 min-h-[8rem]">
           {excludeGames.length === 0 && (
