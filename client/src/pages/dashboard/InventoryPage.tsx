@@ -177,7 +177,7 @@ export function InventoryPage() {
       <div className="space-y-4 pb-2">
         {visibleCampaigns.length === 0 && (
           <Card>
-            <CardContent className="py-10 text-center text-muted-foreground text-sm space-y-2">
+            <CardContent className="!pt-8 !pb-8 text-center text-muted-foreground text-sm space-y-2">
               {allCampaigns.length === 0 ? (
                 <p>No campaigns loaded yet. Press Reload to fetch from Twitch.</p>
               ) : (
