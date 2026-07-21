@@ -157,7 +157,7 @@ export function CampaignsPage() {
           <div className="min-w-0 flex-1">
             <h1 className="text-xl font-semibold sm:text-2xl">Drop lists</h1>
             <p className="text-sm text-muted-foreground sm:text-base">
-              Choose which games to prioritize or skip. Save your changes, then reload to apply them.
+              Choose which games to prioritize mining or skip mining.
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
