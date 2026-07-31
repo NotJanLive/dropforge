@@ -171,7 +171,7 @@ export function OverviewPage() {
           <Card
             className={cn(
               "flex flex-col border-primary/25",
-              mining && "lg:min-h-0 lg:flex-1 lg:overflow-hidden",
+              mining && "lg:min-h-0 lg:shrink lg:overflow-hidden",
               live?.state === "IDLE" && "border-border/60"
             )}
           >
@@ -198,7 +198,7 @@ export function OverviewPage() {
             <CardContent
               className={cn(
                 "flex flex-col gap-4 pt-0 md:gap-3 md:p-3 md:pt-0",
-                mining && "lg:min-h-0 lg:flex-1 lg:overflow-hidden"
+                mining && "lg:min-h-0 lg:overflow-hidden"
               )}
             >
             {twitchLinked === false ? (
@@ -276,7 +276,7 @@ export function OverviewPage() {
                   </div>
                 </div>
 
-                <div className="grid gap-4 border-t border-border/60 pt-3 sm:grid-cols-2 lg:min-h-0 lg:flex-1 lg:grid-rows-1 lg:gap-3 lg:pt-2 lg:overflow-hidden">
+                <div className="grid gap-4 border-t border-border/60 pt-3 sm:grid-cols-2 lg:min-h-0 lg:grid-rows-1 lg:gap-3 lg:pt-2 lg:overflow-hidden">
                   <DropListColumn
                     title="Claimed"
                     emptyText="No drops claimed yet"
@@ -316,7 +316,7 @@ export function OverviewPage() {
             <CardContent className="pt-0 lg:p-3 lg:pt-0">
               <div
                 ref={logRef}
-                className="h-24 overflow-y-auto rounded-lg border border-border/60 bg-black/40 p-3 font-mono text-xs space-y-1 dashboard-scroll lg:h-20 lg:p-2"
+                className="h-48 overflow-y-auto rounded-lg border border-border/60 bg-black/40 p-3 font-mono text-xs space-y-1 dashboard-scroll lg:h-40 lg:p-2"
               >
                 {(live?.logs ?? []).map((entry, i) => (
                   <LogLine key={`${entry.time}-${i}`} entry={entry} />
@@ -483,7 +483,7 @@ function DropListColumn({
   return (
       <div className="flex min-h-0 min-w-0 flex-col gap-2.5 lg:h-full lg:gap-2 lg:overflow-hidden">
       <p className="shrink-0 text-sm font-medium text-muted-foreground">{title}</p>
-      <div className="space-y-2 lg:min-h-0 lg:flex-1 lg:overflow-y-auto lg:pr-1">
+      <div className="space-y-2 lg:min-h-0 lg:flex-1 lg:max-h-40 lg:overflow-y-auto lg:pr-1">
         {drops.length === 0 && <p className="text-xs text-muted-foreground">{emptyText}</p>}
         {drops.map((drop) => (
           <div
