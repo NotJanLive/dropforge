@@ -171,7 +171,7 @@ export function OverviewPage() {
           <Card
             className={cn(
               "flex flex-col border-primary/25",
-              mining && "lg:min-h-0 lg:flex-1 lg:overflow-hidden",
+              mining && "lg:min-h-0 lg:shrink lg:overflow-hidden",
               live?.state === "IDLE" && "border-border/60"
             )}
           >
@@ -198,7 +198,7 @@ export function OverviewPage() {
             <CardContent
               className={cn(
                 "flex flex-col gap-4 pt-0 md:gap-3 md:p-3 md:pt-0",
-                mining && "lg:min-h-0 lg:flex-1 lg:overflow-hidden"
+                mining && "lg:min-h-0 lg:overflow-hidden"
               )}
             >
             {twitchLinked === false ? (
@@ -276,7 +276,7 @@ export function OverviewPage() {
                   </div>
                 </div>
 
-                <div className="grid gap-4 border-t border-border/60 pt-3 sm:grid-cols-2 lg:min-h-0 lg:flex-1 lg:grid-rows-1 lg:gap-3 lg:pt-2 lg:overflow-hidden">
+                <div className="grid gap-4 border-t border-border/60 pt-3 sm:grid-cols-2 lg:min-h-0 lg:grid-rows-1 lg:gap-3 lg:pt-2 lg:overflow-hidden">
                   <DropListColumn
                     title="Claimed"
                     emptyText="No drops claimed yet"
@@ -306,17 +306,17 @@ export function OverviewPage() {
           </CardContent>
           </Card>
 
-          <Card className="shrink-0">
-            <CardHeader className="pb-3 lg:p-3 lg:pb-2">
+          <Card className="flex min-h-0 flex-col lg:flex-1 lg:shrink lg:overflow-hidden">
+            <CardHeader className="shrink-0 pb-3 lg:p-3 lg:pb-2">
               <CardTitle className="flex items-center gap-2 text-base">
                 <Terminal className="h-4 w-4" />
                 Output
               </CardTitle>
             </CardHeader>
-            <CardContent className="pt-0 lg:p-3 lg:pt-0">
+            <CardContent className="flex min-h-0 flex-1 flex-col pt-0 lg:p-3 lg:pt-0">
               <div
                 ref={logRef}
-                className="min-h-[5rem] max-h-28 overflow-y-auto rounded-lg border border-border/60 bg-black/40 p-3 font-mono text-xs space-y-1 dashboard-scroll lg:min-h-[4rem] lg:max-h-24 lg:p-2"
+                className="min-h-[5rem] max-h-28 flex-1 overflow-y-auto rounded-lg border border-border/60 bg-black/40 p-3 font-mono text-xs space-y-1 dashboard-scroll lg:min-h-0 lg:max-h-none lg:p-2"
               >
                 {(live?.logs ?? []).map((entry, i) => (
                   <LogLine key={`${entry.time}-${i}`} entry={entry} />
