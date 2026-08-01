@@ -359,6 +359,13 @@ export class MinerWorker {
       this.watching?.gameName ?? null,
       this.lastWatchAt
     );
+    let unclaimedDrops = 0;
+    for (const c of this.allCampaigns) {
+      if (c.linked) continue;
+      for (const d of c.drops) {
+        if (!d.isClaimed && d.isComplete && !d.canClaim) unclaimedDrops++;
+      }
+    }
     return {
       state: this.state,
       message: this.message,
@@ -385,6 +392,7 @@ export class MinerWorker {
         gameName: c.gameName,
         gameImageUrl: c.gameImageUrl,
       })),
+      unclaimedDrops,
     };
   }
 

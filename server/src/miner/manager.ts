@@ -152,6 +152,7 @@ export function createUnlinkedMinerStatus(logs: MinerLogEntry[] = []): MinerStat
     focusedCampaignName: null,
     focusedGameName: null,
     miningCampaignOptions: [],
+    unclaimedDrops: 0,
   };
 }
 

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { RefreshCw } from "lucide-react";
+import { AlertCircle, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { api, type MinerStatus } from "@/lib/api";
@@ -175,6 +175,19 @@ export function InventoryPage() {
 
       <DashboardScrollArea>
       <div className="space-y-4 pb-2">
+        {visibleCampaigns.some((c) => !c.linked) && (
+          <Card className="border-amber-500/30 bg-amber-500/5">
+            <CardContent className="p-4">
+              <div className="flex items-start gap-3">
+                <AlertCircle className="mt-0.5 h-5 w-5 shrink-0 text-amber-400" />
+                <p className="text-sm text-muted-foreground leading-relaxed">
+                  Some campaigns require linking your game account (e.g. Battle.net) on Twitch before drops can be claimed automatically. Visit the campaign page on Twitch to connect your account.
+                </p>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
         {visibleCampaigns.length === 0 && (
           <Card>
             <CardContent className="!pt-8 !pb-8 text-center text-muted-foreground text-sm space-y-2">
@@ -229,9 +242,7 @@ export function InventoryPage() {
                     <p className="text-sm text-muted-foreground">{campaign.gameName}</p>
                     <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs">
                       <span className={statusInfo.className}>{statusInfo.text}</span>
-                      <span className={campaign.linked ? "text-emerald-400" : "text-red-400"}>
-                        {campaign.linked ? "Linked" : "Not linked"}
-                      </span>
+                      {!campaign.linked && <span className="text-amber-400">Not linked</span>}
                       {isPinned && <span className="text-primary">Mining now</span>}
                       <span className="text-muted-foreground">
                         Drops {claimed}/{campaign.drops.length}

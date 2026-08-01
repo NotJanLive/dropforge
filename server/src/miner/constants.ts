@@ -264,6 +264,8 @@ export interface MinerStatus {
   focusedCampaignName: string | null;
   focusedGameName: string | null;
   miningCampaignOptions: MiningCampaignOption[];
+  /** Number of drops that could not be claimed (e.g. account not linked). */
+  unclaimedDrops: number;
 }
 
 export function topicStr(category: "User" | "Channel", name: string, id: string | number): string {

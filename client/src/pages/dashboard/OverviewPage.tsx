@@ -131,6 +131,26 @@ export function OverviewPage() {
           </Card>
         )}
 
+        {(live?.unclaimedDrops ?? 0) > 0 && (
+          <Card className="border-amber-500/30 bg-amber-500/5">
+            <CardContent className="p-4 sm:p-5">
+              <div className="flex min-w-0 items-start gap-3">
+                <AlertCircle className="mt-0.5 h-5 w-5 shrink-0 text-amber-400" />
+                <div className="min-w-0 space-y-1">
+                  <p className="text-sm font-semibold leading-snug">
+                    {live!.unclaimedDrops === 1
+                      ? "1 drop could not be claimed"
+                      : `${live!.unclaimedDrops} drops could not be claimed`}
+                  </p>
+                  <p className="text-sm leading-relaxed text-muted-foreground">
+                    Link your game account on Twitch to allow automatic claiming.
+                  </p>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
         <div className="flex flex-wrap items-start justify-between gap-3 sm:gap-4">
           <div className="min-w-0 flex-1">
             <h1 className="text-xl font-semibold sm:text-2xl">Miner</h1>

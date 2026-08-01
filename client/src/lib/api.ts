@@ -112,6 +112,7 @@ export interface MinerStatus {
   focusedCampaignName?: string | null;
   focusedGameName?: string | null;
   miningCampaignOptions?: MiningCampaignOption[];
+  unclaimedDrops?: number;
 }
 
 export interface MiningCampaignOption {
