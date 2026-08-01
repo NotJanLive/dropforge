@@ -505,16 +505,22 @@ function DropListColumn({
       <p className="shrink-0 text-sm font-medium text-muted-foreground">{title}</p>
       <div className="space-y-2 lg:min-h-0 lg:flex-1 lg:max-h-40 lg:overflow-y-auto lg:pr-1">
         {drops.length === 0 && <p className="text-xs text-muted-foreground">{emptyText}</p>}
-        {drops.map((drop) => (
+        {drops.map((drop) => {
+          const isSub = variant === "upcoming" && drop.requiredMinutes <= 0;
+          return (
           <div
             key={drop.id}
             className={cn(
               "flex items-center gap-2 rounded-lg border p-2 lg:gap-1.5 lg:p-1.5",
-              variant === "claimed" ? "border-emerald-500/30 bg-emerald-500/5" : "border-border/60"
+              variant === "claimed" && "border-emerald-500/30 bg-emerald-500/5",
+              variant === "upcoming" && !isSub && "border-border/60",
+              isSub && "border-amber-500/30 bg-amber-500/5"
             )}
           >
             {variant === "claimed" ? (
               <CheckCircle2 className="h-4 w-4 text-emerald-400 shrink-0" />
+            ) : isSub ? (
+              <Circle className="h-4 w-4 text-amber-400 shrink-0" />
             ) : (
               <Circle className="h-4 w-4 text-muted-foreground shrink-0" />
             )}
@@ -527,14 +533,17 @@ function DropListColumn({
             />
             <div className="min-w-0 flex-1">
               <p className="text-xs font-medium truncate">{drop.name}</p>
-              <p className="text-[11px] text-muted-foreground">
+              <p className={cn("text-[11px]", isSub ? "text-amber-400" : "text-muted-foreground")}>
                 {variant === "claimed"
                   ? `${drop.requiredMinutes} min`
-                  : `${drop.requiredMinutes} min required`}
+                  : isSub
+                    ? "Subscribe to a channel to unlock"
+                    : `${drop.requiredMinutes} min required`}
               </p>
             </div>
           </div>
-        ))}
+          );
+        })}
       </div>
     </div>
   );
