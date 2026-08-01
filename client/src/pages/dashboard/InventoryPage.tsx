@@ -213,6 +213,7 @@ export function InventoryPage() {
           const isPinned = pinnedCampaignIds.includes(campaign.id);
           const gameImg = resolveGameImageUrl(campaign);
           const activeMiningDropId = live?.activeMining?.dropId;
+          const activeMiningMinutes = live?.activeMining?.dropCurrentMinutes ?? 0;
 
           const claimedDrops = campaign.drops
             .filter((d) => dropInventoryStatus(d) === "claimed")
@@ -260,6 +261,11 @@ export function InventoryPage() {
                   {sortedDrops.map((drop) => {
                     const st = dropInventoryStatus(drop);
                     const isActive = drop.id === activeMiningDropId;
+                    const effectiveMinutes = isActive
+                      ? activeMiningMinutes
+                      : (!drop.isClaimed && !isActive && isPinned && drop.requiredMinutes > 0)
+                        ? Math.min(activeMiningMinutes, drop.requiredMinutes)
+                        : drop.currentMinutes;
                     return (
                       <div
                         key={drop.id}
@@ -267,7 +273,7 @@ export function InventoryPage() {
                           "shrink-0 w-28 rounded-lg border p-2 text-center space-y-2 sm:w-36 sm:p-3",
                           st === "claimed" && "border-emerald-500/40 bg-emerald-500/5",
                           st === "ready" && "border-amber-500/40 bg-amber-500/5",
-                          isActive && "border-primary/50 bg-primary/5 ring-1 ring-primary/30",
+                          isActive && "border-primary/50 bg-primary/5",
                           !isActive && st === "progress" && "border-border/60",
                           st === "pending" && !isActive && drop.requiredMinutes <= 0 && "border-amber-500/40 bg-amber-500/5",
                           st === "pending" && !isActive && drop.requiredMinutes > 0 && "border-border/60"
@@ -298,11 +304,13 @@ export function InventoryPage() {
                           {st === "ready" && "Ready to claim"}
                           {(isActive || st === "progress") &&
                             (drop.requiredMinutes > 0
-                              ? `${Math.round((drop.currentMinutes / drop.requiredMinutes) * 1000) / 10}% (${drop.currentMinutes}/${drop.requiredMinutes} min)`
+                              ? `${Math.round((effectiveMinutes / drop.requiredMinutes) * 1000) / 10}% (${effectiveMinutes}/${drop.requiredMinutes} min)`
                               : "In progress")}
                           {st === "pending" && !isActive &&
                             (drop.requiredMinutes > 0
-                              ? `${drop.requiredMinutes} min`
+                              ? (effectiveMinutes > 0
+                                ? `${Math.round((effectiveMinutes / drop.requiredMinutes) * 1000) / 10}% (${effectiveMinutes}/${drop.requiredMinutes} min)`
+                                : `${drop.requiredMinutes} min`)
                               : "Subscribe")}
                         </p>
                       </div>
