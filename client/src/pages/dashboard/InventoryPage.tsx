@@ -258,8 +258,9 @@ export function InventoryPage() {
                           st === "claimed" && "border-emerald-500/40 bg-emerald-500/5",
                           st === "ready" && "border-amber-500/40 bg-amber-500/5",
                           isActive && "border-primary/50 bg-primary/5 ring-1 ring-primary/30",
-                          !isActive && st === "progress" && "border-primary/30 bg-primary/5",
-                          st === "pending" && "border-border/60"
+                          !isActive && st === "progress" && "border-border/60",
+                          st === "pending" && !isActive && drop.requiredMinutes <= 0 && "border-amber-500/40 bg-amber-500/5",
+                          st === "pending" && !isActive && drop.requiredMinutes > 0 && "border-border/60"
                         )}
                       >
                         <TwitchImage
@@ -277,8 +278,10 @@ export function InventoryPage() {
                             "text-[10px]",
                             st === "claimed" && "text-emerald-400",
                             st === "ready" && "text-amber-400",
-                            (isActive || st === "progress") && "text-primary",
-                            st === "pending" && !isActive && "text-muted-foreground"
+                            isActive && "text-primary",
+                            !isActive && st === "progress" && "text-muted-foreground",
+                            st === "pending" && !isActive && drop.requiredMinutes <= 0 && "text-amber-400",
+                            st === "pending" && !isActive && drop.requiredMinutes > 0 && "text-muted-foreground"
                           )}
                         >
                           {st === "claimed" && "Claimed"}
