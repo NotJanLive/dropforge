@@ -999,7 +999,7 @@ export class MinerWorker {
     if (this.settings.priorityMode === "PRIORITY_ONLY" && this.settings.priorityGames.length === 0) {
       return "Idle — add games to your priority list to start mining";
     }
-    const anyEarnable = this.allCampaigns.some((c) => c.linked && campaignHasEarnableDrops(c));
+    const anyEarnable = this.allCampaigns.some((c) => campaignHasEarnableDrops(c));
     if (!anyEarnable && this.allCampaigns.length > 0) {
       return "Idle — all campaigns complete, waiting for new drops";
     }

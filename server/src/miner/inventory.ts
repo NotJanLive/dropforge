@@ -532,7 +532,7 @@ export function filterCampaignsForMining(
   priorityMode: PriorityMode
 ): CampaignInfo[] {
   let filtered = campaigns.filter((c) => c.status !== "EXPIRED");
-  filtered = filtered.filter((c) => c.linked && campaignHasEarnableDrops(c));
+  filtered = filtered.filter((c) => campaignHasEarnableDrops(c));
   filtered = filtered.filter((c) => !excludeGames.some((g) => g.toLowerCase() === c.gameName.toLowerCase()));
 
   if (priorityMode === "PRIORITY_ONLY") {
