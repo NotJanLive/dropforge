@@ -32,9 +32,16 @@ function dropImageFrom(d: Record<string, unknown>): string {
   return img;
 }
 
+function resolveLinkedStatus(rawSelf: unknown): boolean {
+  if (rawSelf === null || rawSelf === undefined) return true;
+  const self = asRecord(rawSelf);
+  if (!("isAccountConnected" in self)) return true;
+  if (self.isAccountConnected === null || self.isAccountConnected === undefined) return true;
+  return Boolean(self.isAccountConnected);
+}
+
 function parseCampaignSummary(raw: Record<string, unknown>): CampaignSummary {
   const game = asRecord(raw.game);
-  const self = asRecord(raw.self);
   const drops = asArray(raw.timeBasedDrops);
   const gameName = String(game.displayName ?? game.name ?? "");
   const gameSlug = String(game.slug ?? "");
@@ -45,7 +52,7 @@ function parseCampaignSummary(raw: Record<string, unknown>): CampaignSummary {
     gameSlug,
     gameImageUrl: gameImageFrom(raw, gameName, gameSlug),
     status: String(raw.status ?? "ACTIVE"),
-    linked: Boolean(self.isAccountConnected ?? true),
+    linked: resolveLinkedStatus(raw.self),
     startsAt: String(raw.startAt ?? ""),
     endsAt: String(raw.endAt ?? ""),
     dropCount: drops.length,
@@ -167,6 +174,9 @@ function parseCampaignFromDetail(
     gameSlug,
   });
 
+  const hasDropProgress = drops.some((d) => d.currentMinutes > 0 && !d.isClaimed);
+  const linked = hasDropProgress || resolveLinkedStatus(campaign.self ?? base.self);
+
   return {
     id,
     name: String(campaign.name ?? base.name ?? ""),
@@ -174,7 +184,7 @@ function parseCampaignFromDetail(
     gameSlug,
     gameImageUrl,
     status: String(campaign.status ?? base.status ?? "ACTIVE"),
-    linked: Boolean(asRecord(campaign.self ?? base.self).isAccountConnected ?? true),
+    linked,
     startsAt: String(campaign.startAt ?? base.startAt ?? ""),
     endsAt: String(campaign.endAt ?? base.endsAt ?? ""),
     drops,
