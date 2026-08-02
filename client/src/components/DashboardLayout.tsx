@@ -134,15 +134,21 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
           >
             <LogOut className="h-4 w-4" /> Sign out
           </Button>
-          <a
-            href={`https://github.com/NotJanLive/dropforge/commit/${__COMMIT_HASH__}`}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="flex items-center justify-center gap-1.5 text-[11px] text-muted-foreground/60 hover:text-muted-foreground transition-colors"
+          <Button
+            variant="outline"
+            size="sm"
+            className="w-full min-h-8 text-[11px] text-muted-foreground"
+            asChild
           >
-            <GitCommitHorizontal className="h-3.5 w-3.5 shrink-0" />
-            {__GIT_BRANCH__}@{__COMMIT_HASH__}
-          </a>
+            <a
+              href={`https://github.com/NotJanLive/dropforge/commit/${__COMMIT_HASH__}`}
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              <GitCommitHorizontal className="h-3.5 w-3.5" />
+              {__GIT_BRANCH__}@{__COMMIT_HASH__}
+            </a>
+          </Button>
         </div>
       </aside>
 
