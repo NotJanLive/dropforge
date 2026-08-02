@@ -155,15 +155,21 @@ function parseCampaignFromDetail(
   // is claimed and this drop has no progress data, it was almost certainly awarded too.
   const dropById = new Map(drops.map((d) => [d.id, d]));
   for (const drop of drops) {
+    if (drop.requiredMinutes >= 360 || drop.requiredMinutes === 0) {
+      const precs = drop.preconditionDropIds.map((pid) => {
+        const p = dropById.get(pid);
+        return { id: pid, name: p?.name, isClaimed: p?.isClaimed, req: p?.requiredMinutes };
+      });
+      console.log(`[DEBUG-INFER] "${drop.name}" req=${drop.requiredMinutes} claimed=${drop.isClaimed} cur=${drop.currentMinutes} precs=${JSON.stringify(precs)}`);
+    }
     if (drop.isClaimed || drop.preconditionDropIds.length === 0) continue;
     if (drop.currentMinutes > 0) continue;
-    // Only infer for drops where Twitch provides no explicit progress state,
-    // OR where the self edge shows isClaimed=false with 0 minutes (stale state).
     const allPrecsResolved = drop.preconditionDropIds.every((pid) => {
       const p = dropById.get(pid);
       return p?.isClaimed || p?.requiredMinutes === 0;
     });
     if (allPrecsResolved) {
+      console.log(`[DEBUG-INFER] => Inferring "${drop.name}" as claimed`);
       drop.isClaimed = true;
       drop.isComplete = true;
       if (drop.requiredMinutes > 0) drop.currentMinutes = drop.requiredMinutes;
