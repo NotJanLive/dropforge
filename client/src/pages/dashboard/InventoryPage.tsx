@@ -302,7 +302,7 @@ export function InventoryPage() {
                         >
                           {st === "claimed" && "Claimed"}
                           {st === "ready" && "Ready to claim"}
-                          {(isActive || st === "progress") && st !== "ready" &&
+                          {(isActive || st === "progress") && st !== "ready" && st !== "claimed" &&
                             (drop.requiredMinutes > 0
                               ? (effectiveMinutes >= drop.requiredMinutes
                                 ? "Ready to claim"
