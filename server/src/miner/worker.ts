@@ -562,7 +562,7 @@ export class MinerWorker {
     }
     await this.tryClaimDrop(dropId, dropInstanceId);
     const after = findDropInCampaigns(this.allCampaigns, dropId);
-    if (after && !after.drop.isClaimed && dropCanClaim(after.drop, after.campaign)) {
+    if (after && !after.drop.isClaimed) {
       this.forceInventoryRefresh = true;
     }
   }
