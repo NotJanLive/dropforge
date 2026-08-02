@@ -1654,22 +1654,6 @@ export class MinerWorker {
       if (!synced && !this.currentDrop) {
         const inferred = this.inferCurrentDropFromCampaigns();
         if (inferred) {
-          // If inferred drop is already at 100% but Twitch has no session, it was auto-claimed
-          if (inferred.requiredMinutes > 0 && inferred.currentMinutes >= inferred.requiredMinutes) {
-            const prev = findDropInCampaigns(this.allCampaigns, inferred.dropId);
-            if (prev && !prev.drop.isClaimed) {
-              prev.drop.isClaimed = true;
-              prev.drop.isComplete = true;
-              prev.drop.canClaim = false;
-              this.markDropClaimed(inferred.dropId);
-              this.addLog(
-                "success",
-                `Drop claimed: ${prev.drop.name} (${prev.campaign.gameName}) (auto) (${prev.campaign.drops.filter((d) => d.isClaimed).length}/${prev.campaign.drops.length})`
-              );
-              await this.afterDropClaimed(inferred.dropId, prev.campaign);
-              return;
-            }
-          }
           this.currentDrop = inferred;
           this.emit();
           return;
@@ -1678,8 +1662,8 @@ export class MinerWorker {
         if (!inGrace) {
           this.consecutiveStallTicks++;
           // No drop session and nothing inferable — campaign may be fully claimed.
-          // Trigger inventory refresh immediately on first non-grace stall tick.
-          if (this.consecutiveStallTicks >= 1 && !this.forceInventoryRefresh) {
+          // Trigger inventory refresh to get fresh claim status from Twitch.
+          if (this.consecutiveStallTicks >= 3 && !this.forceInventoryRefresh) {
             this.forceInventoryRefresh = true;
             this.addLog("info", "No active drop session — refreshing inventory to check claim status");
             this.emit();
