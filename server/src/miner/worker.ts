@@ -1469,6 +1469,23 @@ export class MinerWorker {
       const currentMinutes = Number(session.currentMinutesWatched ?? 0);
       const requiredMinutes = Number(session.requiredMinutesWatched ?? 0);
 
+      const prevDropId = this.currentDrop?.dropId;
+      if (prevDropId && prevDropId !== dropId) {
+        const prev = findDropInCampaigns(this.allCampaigns, prevDropId);
+        if (prev) {
+          if (!prev.drop.isClaimed && prev.drop.requiredMinutes > 0 && prev.drop.currentMinutes >= prev.drop.requiredMinutes) {
+            prev.drop.isClaimed = true;
+            prev.drop.isComplete = true;
+            prev.drop.canClaim = false;
+            this.markDropClaimed(prevDropId);
+            this.addLog(
+              "success",
+              `Drop claimed: ${prev.drop.name} (${prev.campaign.gameName}) (${prev.campaign.drops.filter((d) => d.isClaimed).length}/${prev.campaign.drops.length})`
+            );
+          }
+        }
+      }
+
       const campaignRaw = asRecord(session.campaign ?? session.dropCampaign);
       const campaignId = String(campaignRaw.id ?? session.campaignID ?? session.campaignId ?? "");
       if (campaignId) await this.ensureCampaignDrops(campaignId, dropId);
