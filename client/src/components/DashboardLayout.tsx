@@ -134,6 +134,14 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
           >
             <LogOut className="h-4 w-4" /> Sign out
           </Button>
+          <a
+            href={`https://github.com/NotJanLive/dropforge/commit/${__COMMIT_HASH__}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="block text-center text-[10px] text-muted-foreground/60 hover:text-muted-foreground transition-colors"
+          >
+            {__COMMIT_HASH__}
+          </a>
         </div>
       </aside>
 
