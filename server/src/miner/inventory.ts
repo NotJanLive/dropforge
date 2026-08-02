@@ -112,7 +112,10 @@ function parseCampaignFromDetail(
     // In that case use Twitch's award history, scoped to this drop's own time
     // window. This matches TwitchDropsMiner and avoids matching an identical
     // benefit awarded by an earlier season.
-    const isClaimed = hasSelf ? Boolean(self.isClaimed) : benefitAwardedForThisDrop;
+    const benefitEverAwarded = benefitAwardTimes.length > 0 && benefitAwardTimes.some((t) => t !== undefined);
+    const isClaimed = hasSelf
+      ? (Boolean(self.isClaimed) || (required > 0 && current >= required && benefitEverAwarded))
+      : benefitAwardedForThisDrop;
     // Merge claimAvailable/dropInstanceID from both sources — CampaignDetails
     // often omits these fields even when the Inventory endpoint has them
     const canClaim = Boolean(self.claimAvailable || fallbackSelf.claimAvailable);
