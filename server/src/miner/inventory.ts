@@ -158,8 +158,11 @@ function parseCampaignFromDetail(
   for (const drop of drops) {
     if (drop.isClaimed || drop.preconditionDropIds.length === 0) continue;
     if (drop._hasSelf || drop.currentMinutes > 0) continue;
-    const allPrecsClaimed = drop.preconditionDropIds.every((pid) => dropById.get(pid)?.isClaimed);
-    if (allPrecsClaimed) {
+    const allPrecsResolved = drop.preconditionDropIds.every((pid) => {
+      const p = dropById.get(pid);
+      return p?.isClaimed || p?.requiredMinutes === 0;
+    });
+    if (allPrecsResolved) {
       drop.isClaimed = true;
       drop.isComplete = true;
       if (drop.requiredMinutes > 0) drop.currentMinutes = drop.requiredMinutes;
