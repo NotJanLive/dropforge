@@ -115,7 +115,7 @@ function parseCampaignFromDetail(
     const benefitEverAwarded = benefitAwardTimes.length > 0 && benefitAwardTimes.some((t) => t !== undefined);
     const watchComplete = required > 0 && current >= required;
     const isClaimed = hasSelf
-      ? (Boolean(self.isClaimed) || (watchComplete && benefitEverAwarded))
+      ? (Boolean(self.isClaimed) || benefitEverAwarded)
       : (benefitEverAwarded || benefitAwardedForThisDrop);
     // Merge claimAvailable/dropInstanceID from both sources — CampaignDetails
     // often omits these fields even when the Inventory endpoint has them
@@ -142,7 +142,6 @@ function parseCampaignFromDetail(
       ),
       endsAt: String(d.endAt ?? ""),
       startAt: String(d.startAt ?? ""),
-      _hasSelf: hasSelf,
     };
   })
     .sort((a, b) => {
@@ -157,7 +156,9 @@ function parseCampaignFromDetail(
   const dropById = new Map(drops.map((d) => [d.id, d]));
   for (const drop of drops) {
     if (drop.isClaimed || drop.preconditionDropIds.length === 0) continue;
-    if (drop._hasSelf || drop.currentMinutes > 0) continue;
+    if (drop.currentMinutes > 0) continue;
+    // Only infer for drops where Twitch provides no explicit progress state,
+    // OR where the self edge shows isClaimed=false with 0 minutes (stale state).
     const allPrecsResolved = drop.preconditionDropIds.every((pid) => {
       const p = dropById.get(pid);
       return p?.isClaimed || p?.requiredMinutes === 0;
@@ -168,8 +169,6 @@ function parseCampaignFromDetail(
       if (drop.requiredMinutes > 0) drop.currentMinutes = drop.requiredMinutes;
     }
   }
-  const finalDrops = drops.map(({ _hasSelf: _, ...d }) => d);
-
   const channels: ChannelInfo[] = allowedChannels.flatMap((entry) => {
     const ch = asRecord(entry);
     if (!ch.id) return [];
@@ -211,7 +210,7 @@ function parseCampaignFromDetail(
     linked,
     startsAt: String(campaign.startAt ?? base.startAt ?? ""),
     endsAt: String(campaign.endAt ?? base.endsAt ?? ""),
-    drops: finalDrops,
+    drops,
     channels,
   };
 }
