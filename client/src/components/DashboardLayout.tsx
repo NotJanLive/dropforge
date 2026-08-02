@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link, useLocation } from "react-router-dom";
-import { Hammer, LogOut, ExternalLink, Menu, X, GitCommitHorizontal } from "lucide-react";
+import { Hammer, LogOut, ExternalLink, Menu, X, Github } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { api } from "@/lib/api";
@@ -140,7 +140,7 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
             rel="noopener noreferrer"
             className="flex items-center justify-center gap-1 text-xs text-muted-foreground/60 hover:text-muted-foreground transition-colors"
           >
-            <GitCommitHorizontal className="h-3.5 w-3.5 shrink-0" />
+            <Github className="h-3.5 w-3.5 shrink-0" />
             {__GIT_BRANCH__} @ {__COMMIT_HASH__}
           </a>
         </div>
