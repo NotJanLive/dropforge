@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link, useLocation } from "react-router-dom";
-import { Hammer, LogOut, ExternalLink, Menu, X } from "lucide-react";
+import { Hammer, LogOut, ExternalLink, Menu, X, GitCommitHorizontal } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { api } from "@/lib/api";
@@ -138,9 +138,10 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
             href={`https://github.com/NotJanLive/dropforge/commit/${__COMMIT_HASH__}`}
             target="_blank"
             rel="noopener noreferrer"
-            className="block text-center text-[10px] text-muted-foreground/60 hover:text-muted-foreground transition-colors"
+            className="flex items-center justify-center gap-1.5 text-[11px] text-muted-foreground/60 hover:text-muted-foreground transition-colors"
           >
-            {__COMMIT_HASH__}
+            <GitCommitHorizontal className="h-3.5 w-3.5 shrink-0" />
+            {__GIT_BRANCH__}@{__COMMIT_HASH__}
           </a>
         </div>
       </aside>

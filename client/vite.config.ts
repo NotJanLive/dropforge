@@ -4,11 +4,13 @@ import path from "path";
 import { execSync } from "child_process";
 
 const commitHash = execSync("git rev-parse --short HEAD").toString().trim();
+const gitBranch = execSync("git rev-parse --abbrev-ref HEAD").toString().trim();
 
 export default defineConfig({
   plugins: [react()],
   define: {
     __COMMIT_HASH__: JSON.stringify(commitHash),
+    __GIT_BRANCH__: JSON.stringify(gitBranch),
   },
   resolve: {
     alias: { "@": path.resolve(__dirname, "src") },
