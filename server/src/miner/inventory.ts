@@ -155,13 +155,6 @@ function parseCampaignFromDetail(
   // is claimed and this drop has no progress data, it was almost certainly awarded too.
   const dropById = new Map(drops.map((d) => [d.id, d]));
   for (const drop of drops) {
-    if (drop.requiredMinutes >= 360 || drop.requiredMinutes === 0) {
-      const precs = drop.preconditionDropIds.map((pid) => {
-        const p = dropById.get(pid);
-        return { id: pid, name: p?.name, isClaimed: p?.isClaimed, req: p?.requiredMinutes };
-      });
-      console.log(`[DEBUG-INFER] "${drop.name}" req=${drop.requiredMinutes} claimed=${drop.isClaimed} cur=${drop.currentMinutes} precs=${JSON.stringify(precs)}`);
-    }
     if (drop.isClaimed || drop.preconditionDropIds.length === 0) continue;
     if (drop.currentMinutes > 0) continue;
     const allPrecsResolved = drop.preconditionDropIds.every((pid) => {
@@ -169,10 +162,37 @@ function parseCampaignFromDetail(
       return p?.isClaimed || p?.requiredMinutes === 0;
     });
     if (allPrecsResolved) {
-      console.log(`[DEBUG-INFER] => Inferring "${drop.name}" as claimed`);
       drop.isClaimed = true;
       drop.isComplete = true;
       if (drop.requiredMinutes > 0) drop.currentMinutes = drop.requiredMinutes;
+    }
+  }
+
+  // Third pass: milestone inference for shared-progress campaigns.
+  // In milestone campaigns (unique ascending thresholds like 60/120/240/360/720),
+  // if a higher-threshold drop has progress or is claimed, all lower-threshold drops
+  // must have been completed already.
+  const timed = drops.filter((d) => d.requiredMinutes > 0);
+  if (timed.length > 1) {
+    const thresholds = timed.map((d) => d.requiredMinutes);
+    const isMilestone =
+      new Set(thresholds).size === thresholds.length &&
+      Math.max(...thresholds) > Math.min(...thresholds);
+    if (isMilestone) {
+      const highestActive = Math.max(
+        ...timed
+          .filter((d) => d.isClaimed || d.currentMinutes > 0)
+          .map((d) => d.requiredMinutes),
+        0
+      );
+      if (highestActive > 0) {
+        for (const drop of timed) {
+          if (drop.isClaimed || drop.requiredMinutes >= highestActive) continue;
+          drop.isClaimed = true;
+          drop.isComplete = true;
+          drop.currentMinutes = drop.requiredMinutes;
+        }
+      }
     }
   }
   const channels: ChannelInfo[] = allowedChannels.flatMap((entry) => {
