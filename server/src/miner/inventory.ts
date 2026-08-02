@@ -116,7 +116,7 @@ function parseCampaignFromDetail(
     const watchComplete = required > 0 && current >= required;
     const isClaimed = hasSelf
       ? (Boolean(self.isClaimed) || (watchComplete && benefitEverAwarded))
-      : (benefitAwardedForThisDrop || (watchComplete && benefitEverAwarded));
+      : (benefitEverAwarded || benefitAwardedForThisDrop);
     // Merge claimAvailable/dropInstanceID from both sources — CampaignDetails
     // often omits these fields even when the Inventory endpoint has them
     const canClaim = Boolean(self.claimAvailable || fallbackSelf.claimAvailable);
