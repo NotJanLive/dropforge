@@ -55,16 +55,16 @@ export function usesSharedWatchProgress(drops: CampaignDrop[]): boolean {
   const timed = drops.filter((d) => d.requiredMinutes > 0);
   if (timed.length <= 1) return true;
 
-  const activeCount = timed.filter((d) => d.currentMinutes > 0 && !d.isClaimed).length;
-  if (activeCount > 1) return false;
-
   const thresholds = timed.map((d) => d.requiredMinutes);
-  // A set of distinct increasing thresholds (30, 60, 120 … 600) represents
-  // cumulative campaign watch time. Twitch may still attach prerequisite links
-  // to those rewards to control their claim order; the links must not make the
-  // campaign total become the sum of every milestone.
-  return new Set(thresholds).size === thresholds.length &&
-    Math.max(...thresholds) > Math.min(...thresholds);
+  if (
+    new Set(thresholds).size === thresholds.length &&
+    Math.max(...thresholds) > Math.min(...thresholds)
+  ) {
+    return true;
+  }
+
+  const activeCount = timed.filter((d) => d.currentMinutes > 0 && !d.isClaimed).length;
+  return activeCount <= 1;
 }
 
 /** Cumulative watch position in milestone campaigns. */
