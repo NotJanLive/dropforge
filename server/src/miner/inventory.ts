@@ -142,6 +142,7 @@ function parseCampaignFromDetail(
       ),
       endsAt: String(d.endAt ?? ""),
       startAt: String(d.startAt ?? ""),
+      _hasSelf: hasSelf,
     };
   })
     .sort((a, b) => {
@@ -149,6 +150,22 @@ function parseCampaignFromDetail(
       return 0;
     })
     .map(({ startAt: _s, ...drop }) => drop);
+
+  // Second pass: infer claimed for drops with no self edge where all preconditions are claimed.
+  // Twitch omits all data for completed drops in finished sequences — if every prerequisite
+  // is claimed and this drop has no progress data, it was almost certainly awarded too.
+  const dropById = new Map(drops.map((d) => [d.id, d]));
+  for (const drop of drops) {
+    if (drop.isClaimed || drop.preconditionDropIds.length === 0) continue;
+    if (drop._hasSelf || drop.currentMinutes > 0) continue;
+    const allPrecsClaimed = drop.preconditionDropIds.every((pid) => dropById.get(pid)?.isClaimed);
+    if (allPrecsClaimed) {
+      drop.isClaimed = true;
+      drop.isComplete = true;
+      if (drop.requiredMinutes > 0) drop.currentMinutes = drop.requiredMinutes;
+    }
+  }
+  const finalDrops = drops.map(({ _hasSelf: _, ...d }) => d);
 
   const channels: ChannelInfo[] = allowedChannels.flatMap((entry) => {
     const ch = asRecord(entry);
@@ -191,7 +208,7 @@ function parseCampaignFromDetail(
     linked,
     startsAt: String(campaign.startAt ?? base.startAt ?? ""),
     endsAt: String(campaign.endAt ?? base.endsAt ?? ""),
-    drops,
+    drops: finalDrops,
     channels,
   };
 }
