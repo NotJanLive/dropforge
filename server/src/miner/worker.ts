@@ -1134,7 +1134,8 @@ export class MinerWorker {
       if (this.settings.priorityGames.length === 0) return false;
       if (
         gameName &&
-        !this.settings.priorityGames.some((g) => g.toLowerCase() === gameName)
+        !this.settings.priorityGames.some((g) => g.toLowerCase() === gameName) &&
+        !channelMatchesCampaigns(this.watching, this.miningCampaigns)
       ) {
         return false;
       }
