@@ -713,14 +713,20 @@ export function resolveClaimId(
   return null;
 }
 
+const SPECIAL_GAME_SLUGS = new Set(["special-events", "irl"]);
+
+function isSpecialGame(campaign: CampaignInfo): boolean {
+  return SPECIAL_GAME_SLUGS.has(campaign.gameSlug.toLowerCase());
+}
+
 export function channelMatchesCampaigns(ch: ChannelInfo, campaigns: CampaignInfo[]): boolean {
   if (campaigns.length === 0) return false;
   const login = ch.login.toLowerCase();
   const chId = ch.id;
   for (const c of campaigns) {
-    if (c.channels.some((acl) => acl.login.toLowerCase() === login || (chId && acl.id === chId))) {
-      return true;
-    }
+    const inAcl = c.channels.some((acl) => acl.login.toLowerCase() === login || (chId && acl.id === chId));
+    if (isSpecialGame(c) && (inAcl || c.channels.length === 0)) return true;
+    if (inAcl) return true;
   }
   const names = new Set(campaigns.map((c) => c.gameName.toLowerCase()).filter(Boolean));
   const slugs = new Set(campaigns.map((c) => c.gameSlug.toLowerCase()).filter(Boolean));
@@ -755,7 +761,8 @@ export function channelPriorityRank(
     const matchesGame =
       (gn && cn === gn) || (gs && cs && gs === cs) || (gn && cs === gn) || (gs && cn === gs);
     const matchesAcl = c.channels.some((acl) => acl.login.toLowerCase() === login || (chId && acl.id === chId));
-    if (!matchesGame && !matchesAcl) continue;
+    const matchesSpecial = isSpecialGame(c) && (matchesAcl || c.channels.length === 0);
+    if (!matchesGame && !matchesAcl && !matchesSpecial) continue;
     best = Math.min(best, gamePriorityRank(c.gameName, priorityGames));
   }
   if (best < 999) return best;
