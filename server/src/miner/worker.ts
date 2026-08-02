@@ -92,6 +92,7 @@ export class MinerWorker {
   private forceInventoryRefresh = false;
   private lastCampaignCount = -1;
   private claiming = false;
+  private claimFailures = new Map<string, number>();
   private watchGraceUntil = 0;
   private watchInFlight = false;
   private maintenanceTriggers: number[] = [];
@@ -557,6 +558,7 @@ export class MinerWorker {
     await this.syncDropProgress();
     const found = findDropInCampaigns(this.allCampaigns, dropId);
     if (found?.drop.isClaimed) {
+      this.claimFailures.delete(dropId);
       await this.afterDropClaimed(dropId, found.campaign);
       return;
     }
@@ -564,6 +566,8 @@ export class MinerWorker {
     const after = findDropInCampaigns(this.allCampaigns, dropId);
     if (after && !after.drop.isClaimed) {
       this.forceInventoryRefresh = true;
+    } else {
+      this.claimFailures.delete(dropId);
     }
   }
 
@@ -950,6 +954,7 @@ export class MinerWorker {
 
       await this.rebuildChannelsFromMining();
       await this.claimAllEligibleDrops();
+      await this.checkStuckDrops();
 
       // After claiming, refilter to remove completed campaigns
       this.refilterMiningCampaigns();
@@ -1282,6 +1287,28 @@ export class MinerWorker {
       for (const drop of campaign.drops) {
         if (!dropCanClaim(drop, campaign)) continue;
         await this.tryClaimDrop(drop.id);
+      }
+    }
+  }
+
+  private async checkStuckDrops() {
+    const dropId = this.currentDrop?.dropId;
+    if (!dropId) return;
+    const found = findDropInCampaigns(this.allCampaigns, dropId);
+    if (!found || found.drop.isClaimed) {
+      this.claimFailures.delete(dropId);
+      return;
+    }
+    const { drop, campaign } = found;
+    if (drop.requiredMinutes > 0 && drop.currentMinutes >= drop.requiredMinutes && !drop.canClaim && !drop.claimId) {
+      const failures = (this.claimFailures.get(dropId) ?? 0) + 1;
+      this.claimFailures.set(dropId, failures);
+      if (failures >= 3) {
+        this.addLog("warn", `Could not claim drop: ${drop.name} (${campaign.gameName}) — skipping`);
+        this.claimFailures.delete(dropId);
+        drop.isComplete = true;
+        this.currentDrop = null;
+        await this.afterDropClaimed(dropId, campaign);
       }
     }
   }
