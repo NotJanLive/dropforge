@@ -715,6 +715,13 @@ export function resolveClaimId(
 
 export function channelMatchesCampaigns(ch: ChannelInfo, campaigns: CampaignInfo[]): boolean {
   if (campaigns.length === 0) return false;
+  const login = ch.login.toLowerCase();
+  const chId = ch.id;
+  for (const c of campaigns) {
+    if (c.channels.some((acl) => acl.login.toLowerCase() === login || (chId && acl.id === chId))) {
+      return true;
+    }
+  }
   const names = new Set(campaigns.map((c) => c.gameName.toLowerCase()).filter(Boolean));
   const slugs = new Set(campaigns.map((c) => c.gameSlug.toLowerCase()).filter(Boolean));
   const gn = ch.gameName.toLowerCase();
@@ -740,12 +747,15 @@ export function channelPriorityRank(
   let best = 999;
   const gn = ch.gameName.toLowerCase();
   const gs = ch.gameSlug.toLowerCase();
+  const login = ch.login.toLowerCase();
+  const chId = ch.id;
   for (const c of campaigns) {
     const cn = c.gameName.toLowerCase();
     const cs = c.gameSlug.toLowerCase();
-    const matches =
+    const matchesGame =
       (gn && cn === gn) || (gs && cs && gs === cs) || (gn && cs === gn) || (gs && cn === gs);
-    if (!matches) continue;
+    const matchesAcl = c.channels.some((acl) => acl.login.toLowerCase() === login || (chId && acl.id === chId));
+    if (!matchesGame && !matchesAcl) continue;
     best = Math.min(best, gamePriorityRank(c.gameName, priorityGames));
   }
   if (best < 999) return best;
