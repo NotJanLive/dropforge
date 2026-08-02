@@ -1466,7 +1466,25 @@ export class MinerWorker {
       const gql = new GqlClient(this.auth);
       const result = await gql.currentDrop(this.watching.id);
       const session = asRecord(asRecord(asRecord(result.data).currentUser).dropCurrentSession);
-      if (!session || !session.dropID) return false;
+      if (!session || !session.dropID) {
+        // No active session — if current drop was at 100%, Twitch auto-claimed it
+        if (this.currentDrop?.dropId && this.currentDrop.requiredMinutes > 0 &&
+            this.currentDrop.currentMinutes >= this.currentDrop.requiredMinutes) {
+          const prev = findDropInCampaigns(this.allCampaigns, this.currentDrop.dropId);
+          if (prev && !prev.drop.isClaimed) {
+            prev.drop.isClaimed = true;
+            prev.drop.isComplete = true;
+            prev.drop.canClaim = false;
+            this.markDropClaimed(this.currentDrop.dropId);
+            this.addLog(
+              "success",
+              `Drop claimed: ${prev.drop.name} (${prev.campaign.gameName}) (auto) (${prev.campaign.drops.filter((d) => d.isClaimed).length}/${prev.campaign.drops.length})`
+            );
+            await this.afterDropClaimed(this.currentDrop.dropId, prev.campaign);
+          }
+        }
+        return false;
+      }
 
       const dropId = String(session.dropID);
       const currentMinutes = Number(session.currentMinutesWatched ?? 0);
