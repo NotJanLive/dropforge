@@ -33,6 +33,7 @@ import {
   findDropInCampaigns,
   fetchCampaignDetail,
   channelMatchesCampaigns,
+  channelTrustedByCampaign,
   dropCanClaim,
   resolveClaimId,
   invalidateCampaignSourceCache,
@@ -197,10 +198,13 @@ export class MinerWorker {
             return;
           }
 
-          // Directory results only mean that a channel has *some* drops.
-          // They are not campaign-specific, so never use them as evidence
-          // that this account can earn the focused campaign.
-          ch.dropsEnabled = await channelHasCampaignDrops(this.auth, ch.id, focused);
+          // ACL/Special Events channels are trusted without a GQL check.
+          // For others, confirm the exact campaign against the channel.
+          if (channelTrustedByCampaign(ch, focused)) {
+            ch.dropsEnabled = true;
+          } else {
+            ch.dropsEnabled = await channelHasCampaignDrops(this.auth, ch.id, focused);
+          }
         })
       );
     }
@@ -730,9 +734,7 @@ export class MinerWorker {
         this.subscribeChannel(ch);
 
         const focused = this.getFocusedCampaigns();
-        if (info.channelId && focused.length > 0) {
-          // The game directory's DROPS_ENABLED flag is generic. Confirm the
-          // exact campaign against the channel before starting a watch session.
+        if (info.channelId && focused.length > 0 && !channelTrustedByCampaign(ch, focused)) {
           const hasDrops = await channelHasCampaignDrops(this.auth, info.channelId, focused);
           ch.dropsEnabled = hasDrops;
           if (!hasDrops) {

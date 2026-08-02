@@ -224,7 +224,8 @@ function parseCampaignFromDetail(
   });
 
   const hasDropProgress = drops.some((d) => d.currentMinutes > 0 && !d.isClaimed);
-  const linked = hasDropProgress || resolveLinkedStatus(campaign.self ?? base.self);
+  const specialGame = SPECIAL_GAME_SLUGS.has(gameSlug.toLowerCase());
+  const linked = hasDropProgress || specialGame || resolveLinkedStatus(campaign.self ?? base.self);
 
   return {
     id,
@@ -760,8 +761,20 @@ export function resolveClaimId(
 
 const SPECIAL_GAME_SLUGS = new Set(["special-events", "irl"]);
 
-function isSpecialGame(campaign: CampaignInfo): boolean {
+export function isSpecialGame(campaign: CampaignInfo): boolean {
   return SPECIAL_GAME_SLUGS.has(campaign.gameSlug.toLowerCase());
+}
+
+/** Channel is trusted for the campaign via ACL or Special Events (no GQL check needed). */
+export function channelTrustedByCampaign(ch: ChannelInfo, campaigns: CampaignInfo[]): boolean {
+  const login = ch.login.toLowerCase();
+  const chId = ch.id;
+  for (const c of campaigns) {
+    const inAcl = c.channels.some((acl) => acl.login.toLowerCase() === login || (chId && acl.id === chId));
+    if (inAcl) return true;
+    if (isSpecialGame(c) && c.channels.length === 0) return true;
+  }
+  return false;
 }
 
 export function channelMatchesCampaigns(ch: ChannelInfo, campaigns: CampaignInfo[]): boolean {
