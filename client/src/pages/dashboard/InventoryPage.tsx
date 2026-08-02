@@ -219,7 +219,7 @@ export function InventoryPage() {
             .filter((d) => dropInventoryStatus(d) === "claimed")
             .sort((a, b) => a.requiredMinutes - b.requiredMinutes);
           const activeDrops = campaign.drops.filter(
-            (d) => d.id === activeMiningDropId
+            (d) => d.id === activeMiningDropId && !d.isClaimed
           );
           const openDrops = campaign.drops
             .filter((d) => dropInventoryStatus(d) !== "claimed" && d.id !== activeMiningDropId)
@@ -302,9 +302,11 @@ export function InventoryPage() {
                         >
                           {st === "claimed" && "Claimed"}
                           {st === "ready" && "Ready to claim"}
-                          {(isActive || st === "progress") &&
+                          {(isActive || st === "progress") && st !== "ready" &&
                             (drop.requiredMinutes > 0
-                              ? `${Math.round((effectiveMinutes / drop.requiredMinutes) * 1000) / 10}% (${effectiveMinutes}/${drop.requiredMinutes} min)`
+                              ? (effectiveMinutes >= drop.requiredMinutes
+                                ? "Ready to claim"
+                                : `${Math.round((effectiveMinutes / drop.requiredMinutes) * 1000) / 10}% (${effectiveMinutes}/${drop.requiredMinutes} min)`)
                               : "In progress")}
                           {st === "pending" && !isActive &&
                             (drop.requiredMinutes > 0

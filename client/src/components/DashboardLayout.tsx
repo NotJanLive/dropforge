@@ -135,7 +135,7 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
             <LogOut className="h-4 w-4" /> Sign out
           </Button>
           <a
-            href={`https://github.com/NotJanLive/dropforge/commit/${__COMMIT_HASH__}`}
+            href={`https://github.com/NotJanLive/dropforge/tree/${__GIT_BRANCH__}`}
             target="_blank"
             rel="noopener noreferrer"
             className="flex items-center justify-center gap-1 text-xs text-muted-foreground/60 hover:text-muted-foreground transition-colors"
