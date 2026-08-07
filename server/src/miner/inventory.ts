@@ -168,8 +168,10 @@ function parseCampaignFromDetail(
 
   // Third pass: milestone inference for shared-progress campaigns.
   // In milestone campaigns (unique ascending thresholds like 60/120/240/360/720),
-  // if a higher-threshold drop has progress or is claimed, all lower-threshold drops
-  // must have been completed already.
+  // all drops share one watch counter. A drop whose requiredMinutes is at or below
+  // the highest CLAIMED drop's threshold must also be claimed.
+  // We use the highest claimed threshold (not mere progress) to avoid falsely
+  // marking lower drops when shared progress sits on the top-tier drop.
   const timed = drops.filter((d) => d.requiredMinutes > 0);
   if (timed.length > 1) {
     const thresholds = timed.map((d) => d.requiredMinutes);
@@ -177,15 +179,15 @@ function parseCampaignFromDetail(
       new Set(thresholds).size === thresholds.length &&
       Math.max(...thresholds) > Math.min(...thresholds);
     if (isMilestone) {
-      const highestActive = Math.max(
+      const highestClaimed = Math.max(
         ...timed
-          .filter((d) => d.isClaimed || d.currentMinutes > 0)
+          .filter((d) => d.isClaimed)
           .map((d) => d.requiredMinutes),
         0
       );
-      if (highestActive > 0) {
+      if (highestClaimed > 0) {
         for (const drop of timed) {
-          if (drop.isClaimed || drop.requiredMinutes >= highestActive) continue;
+          if (drop.isClaimed || drop.requiredMinutes >= highestClaimed) continue;
           drop.isClaimed = true;
           drop.isComplete = true;
           drop.currentMinutes = drop.requiredMinutes;
