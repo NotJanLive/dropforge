@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { AlertCircle, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -49,6 +49,7 @@ export function InventoryPage() {
     defaultInventoryFilters("PRIORITY_ONLY", [])
   );
   const [reloading, setReloading] = useState(false);
+  const [, startTransition] = useTransition();
   const wsStatus = useMinerWebSocket(user?.role === "user" ? user.id : null);
 
   useEffect(() => {
@@ -72,10 +73,33 @@ export function InventoryPage() {
   }, [user]);
 
   const live = wsStatus ?? status;
-  const allCampaigns = useMemo(
-    () => (live?.campaigns ?? []) as InventoryCampaign[],
-    [live?.campaigns]
-  );
+  const rawCampaigns = live?.campaigns as InventoryCampaign[] | undefined;
+  const campaignsRef = useRef<InventoryCampaign[]>([]);
+  const allCampaigns = useMemo(() => {
+    const incoming = rawCampaigns ?? [];
+    if (incoming.length === 0 && campaignsRef.current.length === 0) return campaignsRef.current;
+    if (incoming.length !== campaignsRef.current.length) {
+      campaignsRef.current = incoming;
+      return incoming;
+    }
+    for (let i = 0; i < incoming.length; i++) {
+      const a = incoming[i];
+      const b = campaignsRef.current[i];
+      if (a.id !== b.id || a.drops.length !== b.drops.length) {
+        campaignsRef.current = incoming;
+        return incoming;
+      }
+      for (let j = 0; j < a.drops.length; j++) {
+        const da = a.drops[j];
+        const db = b.drops[j];
+        if (da.isClaimed !== db.isClaimed || da.currentMinutes !== db.currentMinutes || da.canClaim !== db.canClaim) {
+          campaignsRef.current = incoming;
+          return incoming;
+        }
+      }
+    }
+    return campaignsRef.current;
+  }, [rawCampaigns]);
 
   const pinnedCampaignIds = useMemo(() => {
     const miningId = live?.activeMining?.campaignId;
@@ -115,7 +139,9 @@ export function InventoryPage() {
   };
 
   const toggleFilter = (key: keyof InventoryFilterState) => {
-    setFilters((prev) => ({ ...prev, [key]: !prev[key] }));
+    startTransition(() => {
+      setFilters((prev) => ({ ...prev, [key]: !prev[key] }));
+    });
   };
 
   if (user?.role === "admin") {
