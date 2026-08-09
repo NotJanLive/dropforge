@@ -33,13 +33,14 @@ import {
   findDropInCampaigns,
   fetchCampaignDetail,
   channelMatchesCampaigns,
+  channelTrustedByCampaign,
   dropCanClaim,
   resolveClaimId,
   invalidateCampaignSourceCache,
   finalizeCampaigns,
   resolveFocusedCampaign,
 } from "./inventory.js";
-import { fetchStreamInfo, sendWatch, sendWatchStream } from "./channel.js";
+import { fetchStreamInfo, sendWatch, sendWatchStream, channelHasCampaignDrops } from "./channel.js";
 import { GqlClient } from "./gql.js";
 import { computeActiveMining, updateDropMinutesInCampaigns, extractImagesFromSession } from "./progress.js";
 
@@ -177,19 +178,41 @@ export class MinerWorker {
     for (const ch of this.channels) this.subscribeChannel(ch);
   }
 
-  private markChannelDropFlags() {
-    for (const ch of this.channels) {
-      if (!ch.online) {
-        ch.dropsEnabled = false;
-        continue;
+  private async markChannelDropFlags() {
+    const focused = this.getFocusedCampaigns();
+    if (focused.length === 0) return;
+
+    const concurrency = 10;
+
+    for (let i = 0; i < this.channels.length; i += concurrency) {
+      const batch = this.channels.slice(i, i + concurrency);
+      await Promise.all(
+        batch.map(async (ch) => {
+          if (!ch.online) {
+            ch.dropsEnabled = false;
+            return;
+          }
+          if (!ch.id || !/^\d+$/.test(ch.id)) {
+            ch.dropsEnabled = false;
+            return;
+          }
+          // ACL/Special Events channels are trusted without a GQL check.
+          if (channelTrustedByCampaign(ch, focused)) {
+            ch.dropsEnabled = true;
+            return;
+          }
+          ch.dropsEnabled = await channelHasCampaignDrops(this.auth, ch.id, focused);
+        })
+      );
+    }
+
+    // If no channel passed the check, fall back to all online channels.
+    if (!this.channels.some((c) => c.dropsEnabled)) {
+      for (const ch of this.channels) {
+        if (ch.online && ch.id && /^\d+$/.test(ch.id)) {
+          ch.dropsEnabled = true;
+        }
       }
-      if (!ch.id || !/^\d+$/.test(ch.id)) {
-        ch.dropsEnabled = false;
-        continue;
-      }
-      // Trust the game directory DROPS_ENABLED filter and ACL membership.
-      // The reference miner does not run per-channel campaign verification.
-      ch.dropsEnabled = true;
     }
   }
 
