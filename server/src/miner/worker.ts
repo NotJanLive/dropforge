@@ -198,13 +198,14 @@ export class MinerWorker {
             return;
           }
 
-          // ACL/Special Events channels are trusted without a GQL check.
-          // For others, confirm the exact campaign against the channel.
-          if (channelTrustedByCampaign(ch, focused)) {
+          // Channels from the game directory already have dropsEnabled set.
+          // ACL/Special Events channels are also trusted without a GQL check.
+          if (ch.dropsEnabled === true || channelTrustedByCampaign(ch, focused)) {
             ch.dropsEnabled = true;
-          } else {
-            ch.dropsEnabled = await channelHasCampaignDrops(this.auth, ch.id, focused);
+            return;
           }
+
+          ch.dropsEnabled = await channelHasCampaignDrops(this.auth, ch.id, focused);
         })
       );
     }
@@ -734,7 +735,7 @@ export class MinerWorker {
         this.subscribeChannel(ch);
 
         const focused = this.getFocusedCampaigns();
-        if (info.channelId && focused.length > 0 && !channelTrustedByCampaign(ch, focused)) {
+        if (info.channelId && focused.length > 0 && ch.dropsEnabled !== true && !channelTrustedByCampaign(ch, focused)) {
           const hasDrops = await channelHasCampaignDrops(this.auth, info.channelId, focused);
           ch.dropsEnabled = hasDrops;
           if (!hasDrops) {
