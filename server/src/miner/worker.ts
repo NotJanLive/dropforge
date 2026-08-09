@@ -39,7 +39,7 @@ import {
   finalizeCampaigns,
   resolveFocusedCampaign,
 } from "./inventory.js";
-import { fetchStreamInfo, sendWatch, sendWatchStream } from "./channel.js";
+import { fetchStreamInfo, sendWatch, sendWatchStream, channelHasCampaignDrops } from "./channel.js";
 import { GqlClient } from "./gql.js";
 import { computeActiveMining, updateDropMinutesInCampaigns, extractImagesFromSession } from "./progress.js";
 
@@ -177,16 +177,22 @@ export class MinerWorker {
     for (const ch of this.channels) this.subscribeChannel(ch);
   }
 
-  private markChannelDropFlags() {
-    for (const ch of this.channels) {
-      if (!ch.online || !ch.id || !/^\d+$/.test(ch.id)) {
-        ch.dropsEnabled = false;
-        continue;
-      }
-      // Trust the game directory DROPS_ENABLED filter and campaign ACL.
-      // The reference miner (available_drops_check=False by default) does
-      // not run per-channel viewerDropCampaigns verification.
-      ch.dropsEnabled = true;
+  private async markChannelDropFlags() {
+    const focused = this.getFocusedCampaigns();
+    if (focused.length === 0) return;
+
+    const concurrency = 10;
+    for (let i = 0; i < this.channels.length; i += concurrency) {
+      const batch = this.channels.slice(i, i + concurrency);
+      await Promise.all(
+        batch.map(async (ch) => {
+          if (!ch.online || !ch.id || !/^\d+$/.test(ch.id)) {
+            ch.dropsEnabled = false;
+            return;
+          }
+          ch.dropsEnabled = await channelHasCampaignDrops(this.auth, ch.id, focused);
+        })
+      );
     }
   }
 
