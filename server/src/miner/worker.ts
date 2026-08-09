@@ -198,9 +198,8 @@ export class MinerWorker {
             return;
           }
 
-          // Channels from the game directory already have dropsEnabled set.
-          // ACL/Special Events channels are also trusted without a GQL check.
-          if (ch.dropsEnabled === true || channelTrustedByCampaign(ch, focused)) {
+          // ACL/Special Events channels are trusted without a GQL check.
+          if (channelTrustedByCampaign(ch, focused)) {
             ch.dropsEnabled = true;
             return;
           }
@@ -208,6 +207,16 @@ export class MinerWorker {
           ch.dropsEnabled = await channelHasCampaignDrops(this.auth, ch.id, focused);
         })
       );
+    }
+
+    // If no channel passed the GQL check, fall back to all online channels
+    // from the game directory (matching the reference miner behavior).
+    if (!this.channels.some((c) => c.dropsEnabled)) {
+      for (const ch of this.channels) {
+        if (ch.online && ch.id && /^\d+$/.test(ch.id)) {
+          ch.dropsEnabled = true;
+        }
+      }
     }
   }
 
@@ -735,18 +744,26 @@ export class MinerWorker {
         this.subscribeChannel(ch);
 
         const focused = this.getFocusedCampaigns();
-        if (info.channelId && focused.length > 0 && ch.dropsEnabled !== true && !channelTrustedByCampaign(ch, focused)) {
+        if (info.channelId && focused.length > 0 && !channelTrustedByCampaign(ch, focused)) {
           const hasDrops = await channelHasCampaignDrops(this.auth, info.channelId, focused);
           ch.dropsEnabled = hasDrops;
           if (!hasDrops) {
-            this.addLog(
-              "warn",
-              `${login} is live but drops are not enabled for this campaign — skipping`
+            // Only skip if there are other verified channels available
+            const hasAlternatives = this.channels.some(
+              (c) => c.dropsEnabled === true && c.online && c.login !== ch.login
             );
-            this.watching = null;
-            this.broadcastId = null;
-            this.emit();
-            return;
+            if (hasAlternatives) {
+              this.addLog(
+                "warn",
+                `${login} is live but drops are not enabled for this campaign — skipping`
+              );
+              this.watching = null;
+              this.broadcastId = null;
+              this.emit();
+              return;
+            }
+            // No alternatives — use this channel anyway (game directory fallback)
+            ch.dropsEnabled = true;
           }
         }
 
