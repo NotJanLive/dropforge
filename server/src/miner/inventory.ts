@@ -765,14 +765,19 @@ export function isSpecialGame(campaign: CampaignInfo): boolean {
   return SPECIAL_GAME_SLUGS.has(campaign.gameSlug.toLowerCase());
 }
 
-/** Channel is trusted for the campaign via ACL or Special Events (no GQL check needed). */
+/** Channel is trusted for the campaign via game match, ACL, or Special Events (no GQL check needed). */
 export function channelTrustedByCampaign(ch: ChannelInfo, campaigns: CampaignInfo[]): boolean {
   const login = ch.login.toLowerCase();
   const chId = ch.id;
+  const gn = ch.gameName.toLowerCase();
+  const gs = ch.gameSlug.toLowerCase();
   for (const c of campaigns) {
     const inAcl = c.channels.some((acl) => acl.login.toLowerCase() === login || (chId && acl.id === chId));
     if (inAcl) return true;
     if (isSpecialGame(c) && c.channels.length === 0) return true;
+    const cn = c.gameName.toLowerCase();
+    const cs = c.gameSlug.toLowerCase();
+    if ((gn && cn && gn === cn) || (gs && cs && gs === cs)) return true;
   }
   return false;
 }
