@@ -1678,11 +1678,11 @@ export class MinerWorker {
           );
         }
 
-        // After ~20 stall ticks (~20 min) without progress, this channel is not crediting drops.
-        // Try switching to another channel; if none found, stay but keep checking.
-        if (this.consecutiveStallTicks === 20) {
+        // After ~5 stall ticks (~15 min) without progress, try another channel.
+        // If none found, go idle and wait for channel refresh to find one.
+        if (this.consecutiveStallTicks >= 5) {
           const currentLogin = this.watching?.login;
-          this.addLog("warn", `No drop progress for ~20 min on ${currentLogin ?? "channel"} — searching for another`);
+          this.addLog("warn", `No drop progress on ${currentLogin ?? "channel"} — searching for another`);
           await this.refreshChannelsQuietly();
           const best = pickBestChannel(
             this.getDisplayChannels().filter((c) => !sameLogin(c.login, currentLogin)),
@@ -1696,9 +1696,9 @@ export class MinerWorker {
             await this.applyChannelSwitch(best.login);
             return;
           }
-          // No better channel found — reset counter and keep watching current one
           this.consecutiveStallTicks = 0;
-          this.addLog("info", `No alternative channel found — staying on ${currentLogin ?? "current channel"}`);
+          this.clearWatchSession(`No channel with drops found — waiting for eligible channel`);
+          this.forceInventoryRefresh = true;
         }
       }
 
