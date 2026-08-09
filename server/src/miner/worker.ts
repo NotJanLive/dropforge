@@ -672,7 +672,7 @@ export class MinerWorker {
 
   private ensureWatchingInChannelList() {
     if (!this.watching) return;
-    if (this.watching.dropsEnabled === false) return;
+    if (this.watching.dropsEnabled !== true) return;
     const exists = this.channels.some((c) => sameLogin(c.login, this.watching!.login));
     if (!exists) {
       this.channels.unshift({ ...this.watching });
@@ -700,8 +700,9 @@ export class MinerWorker {
       const ch = this.upsertChannel(login, info);
       this.watching = ch;
 
-      const needGame = this.getFocusedCampaigns().map((c) => c.gameName).filter(Boolean);
-      const gameOk = channelMatchesCampaigns(ch, this.getFocusedCampaigns());
+      const focused = this.getFocusedCampaigns();
+      const needGame = focused.map((c) => c.gameName).filter(Boolean);
+      const gameOk = channelMatchesCampaigns(ch, focused);
       if (!gameOk && needGame.length > 0) {
         const msg = `${login} streams "${info.gameName || "unknown"}" — drops need ${needGame.join(" or ")}`;
         if (!userInitiated) {
@@ -712,6 +713,20 @@ export class MinerWorker {
           return;
         }
         this.addLog("warn", msg);
+      }
+
+      if (!userInitiated && focused.length > 0 && ch.dropsEnabled !== true) {
+        const hasDrops = ch.id && /^\d+$/.test(ch.id)
+          ? await channelHasCampaignDrops(this.auth, ch.id, focused)
+          : false;
+        ch.dropsEnabled = hasDrops;
+        if (!hasDrops) {
+          this.addLog("warn", `${login} does not have campaign drops active — skipping`);
+          this.watching = null;
+          this.broadcastId = null;
+          this.emit();
+          return;
+        }
       }
 
       if (info.online && info.broadcastId) {
@@ -1190,8 +1205,8 @@ export class MinerWorker {
         );
         this.broadcastId = null;
         this.watching = null;
-      } else if (inList?.dropsEnabled === false) {
-        this.addLog("warn", `${this.watching.login} has no drops — searching for another channel`);
+      } else if (focusedCampaigns.length > 0 && (!inList || inList.dropsEnabled !== true)) {
+        this.addLog("warn", `${this.watching.login} has no campaign drops active — searching for another channel`);
         this.broadcastId = null;
         this.watching = null;
       } else if (focusedCampaigns.length === 0) {

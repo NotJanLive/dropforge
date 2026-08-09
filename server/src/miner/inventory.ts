@@ -549,7 +549,7 @@ export async function discoverGameChannels(
         viewers: Number(node.viewersCount ?? 0),
         campaignIds: [campaignId],
         aclPreferred: false,
-        dropsEnabled: true,
+        dropsEnabled: undefined,
       };
     });
   } catch {
