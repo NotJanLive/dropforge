@@ -1,11 +1,14 @@
-import { ArrowDown, ArrowUp, X } from "lucide-react";
+import { useMemo, useState } from "react";
+import { ArrowDown, ArrowUp, Ban, ListOrdered, Plus, Settings2, X } from "lucide-react";
+import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
+import { Select } from "@/components/ui/select";
+import { TwitchImage } from "@/components/TwitchImage";
 import { gamesAvailableForAdd, type GameOption } from "@/lib/campaignGames";
 import { resolveGameImageUrl } from "@/lib/gameImage";
 import { cn } from "@/lib/utils";
-import { useMemo, useState } from "react";
 
 interface DropListsEditorProps {
   games: GameOption[];
@@ -17,6 +20,52 @@ interface DropListsEditorProps {
   onPriorityModeChange: (mode: string) => void;
   activeOnlyHint?: boolean;
   hidePriorityMode?: boolean;
+}
+
+function GameArt({ imageUrl, name }: { imageUrl?: string; name: string }) {
+  return (
+    <TwitchImage
+      src={resolveGameImageUrl({ gameImageUrl: imageUrl, gameName: name })}
+      fallbackSrc=""
+      alt=""
+      className="h-10 w-[1.875rem] shrink-0 rounded-md object-cover ring-1 ring-inset ring-white/10"
+      fallbackClassName="h-10 w-[1.875rem] shrink-0 rounded-md bg-white/[0.05]"
+    />
+  );
+}
+
+function ListCard({
+  icon: Icon,
+  title,
+  description,
+  count,
+  children,
+  tone = "neutral",
+}: {
+  icon: typeof ListOrdered;
+  title: string;
+  description: string;
+  count: number;
+  children: React.ReactNode;
+  tone?: "primary" | "neutral";
+}) {
+  return (
+    <Card className="flex flex-col">
+      <CardHeader className="gap-1.5 pb-3">
+        <div className="flex items-center justify-between gap-2">
+          <CardTitle className="flex items-center gap-2 text-sm">
+            <Icon
+              className={cn("h-4 w-4", tone === "primary" ? "text-primary" : "text-muted-foreground")}
+            />
+            {title}
+          </CardTitle>
+          <span className="text-2xs tabular-nums text-muted-foreground">{count}</span>
+        </div>
+        <CardDescription className="text-xs">{description}</CardDescription>
+      </CardHeader>
+      <CardContent className="flex-1 space-y-2 pt-0">{children}</CardContent>
+    </Card>
+  );
 }
 
 export function DropListsEditor({
@@ -66,39 +115,38 @@ export function DropListsEditor({
   const metaFor = (name: string) => games.find((g) => g.name === name);
 
   return (
-    <div className="grid gap-4 lg:grid-cols-3">
-      <Card className="lg:col-span-1">
-        <CardHeader>
-          <CardTitle className="text-base">Settings</CardTitle>
-          <CardDescription>
+    <div className="grid gap-3.5 lg:grid-cols-3">
+      <Card className="flex flex-col">
+        <CardHeader className="gap-1.5 pb-3">
+          <CardTitle className="flex items-center gap-2 text-sm">
+            <Settings2 className="h-4 w-4 text-muted-foreground" />
+            Configure
+          </CardTitle>
+          <CardDescription className="text-xs">
             {activeOnlyHint
               ? "Add active games with drop campaigns. The miner walks the priority list top to bottom."
               : "Choose games to prioritize or exclude."}
           </CardDescription>
         </CardHeader>
-        <CardContent className="space-y-4">
+        <CardContent className="space-y-4 pt-0">
           {!hidePriorityMode && (
             <div className="space-y-2">
-              <Label>Priority mode</Label>
-              <select
-                className="flex h-10 w-full rounded-lg border border-input bg-secondary/50 px-3 text-sm"
+              <Label htmlFor="priority-mode">Priority mode</Label>
+              <Select
+                id="priority-mode"
                 value={priorityMode}
                 onChange={(e) => onPriorityModeChange(e.target.value)}
               >
                 <option value="PRIORITY_ONLY">Priority list only</option>
                 <option value="ENDING_SOONEST">Priority first, then ending soonest</option>
                 <option value="LOW_AVBL_FIRST">Priority first, then low availability</option>
-              </select>
+              </Select>
             </div>
           )}
 
           <div className="space-y-2">
-            <Label>Add game</Label>
-            <select
-              className="flex h-10 w-full rounded-lg border border-input bg-secondary/50 px-3 text-sm"
-              value={pickGame}
-              onChange={(e) => setPickGame(e.target.value)}
-            >
+            <Label htmlFor="add-game">Add game</Label>
+            <Select id="add-game" value={pickGame} onChange={(e) => setPickGame(e.target.value)}>
               <option value="">Select a game…</option>
               {addable.map((g) => (
                 <option key={g.name} value={g.name}>
@@ -106,141 +154,139 @@ export function DropListsEditor({
                   {!g.linked ? " · link required" : ""}
                 </option>
               ))}
-            </select>
-            <div className="flex gap-2">
-              <Button
-                type="button"
-                size="sm"
-                variant={addTarget === "priority" ? "default" : "outline"}
-                className="flex-1"
-                onClick={() => setAddTarget("priority")}
-              >
-                To priority
-              </Button>
-              <Button
-                type="button"
-                size="sm"
-                variant={addTarget === "exclude" ? "default" : "outline"}
-                className="flex-1"
-                onClick={() => setAddTarget("exclude")}
-              >
-                To ignore
-              </Button>
+            </Select>
+
+            <div className="grid grid-cols-2 gap-1 rounded-xl border border-white/[0.07] bg-white/[0.02] p-1">
+              {(
+                [
+                  { key: "priority", label: "To priority" },
+                  { key: "exclude", label: "To ignore" },
+                ] as const
+              ).map(({ key, label }) => (
+                <button
+                  key={key}
+                  type="button"
+                  onClick={() => setAddTarget(key)}
+                  aria-pressed={addTarget === key}
+                  className={cn(
+                    "rounded-lg px-3 py-2 text-xs font-medium transition-colors duration-200",
+                    addTarget === key
+                      ? key === "priority"
+                        ? "bg-primary/15 text-primary"
+                        : "bg-white/[0.08] text-foreground"
+                      : "text-muted-foreground hover:text-foreground"
+                  )}
+                >
+                  {label}
+                </button>
+              ))}
             </div>
-            <Button type="button" className="w-full min-h-10" size="sm" disabled={!pickGame} onClick={addGame}>
+
+            <Button type="button" className="w-full" disabled={!pickGame} onClick={addGame}>
+              <Plus className="h-4 w-4" />
               Add game
             </Button>
           </div>
         </CardContent>
       </Card>
 
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Priority list</CardTitle>
-          <CardDescription>Games are mined from top to bottom</CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-2 min-h-[8rem]">
-          {priorityGames.length === 0 && (
-            <p className="text-sm text-muted-foreground">
-              {priorityMode === "PRIORITY_ONLY"
-                ? "Empty — miner stays idle until you add games."
-                : "Empty — miner uses all non-ignored games."}
-            </p>
-          )}
-          {priorityGames.map((game, index) => {
-            const meta = metaFor(game);
-            return (
-              <div
-                key={game}
-                className="flex items-center gap-2 rounded-lg border border-primary/30 bg-primary/5 p-2"
-              >
-                {meta?.imageUrl ? (
-                  <img
-                    src={resolveGameImageUrl({ gameImageUrl: meta.imageUrl, gameName: game })}
-                    alt=""
-                    className="h-10 w-8 rounded object-cover shrink-0"
-                    referrerPolicy="no-referrer"
-                  />
-                ) : (
-                  <div className="h-10 w-8 rounded bg-muted shrink-0" />
-                )}
-                <span className="text-sm flex-1 truncate font-medium">{game}</span>
+      <ListCard
+        icon={ListOrdered}
+        tone="primary"
+        title="Priority list"
+        description="Games are mined from top to bottom"
+        count={priorityGames.length}
+      >
+        {priorityGames.length === 0 && (
+          <p className="rounded-xl border border-dashed border-white/[0.08] px-3 py-4 text-center text-xs leading-relaxed text-muted-foreground">
+            {priorityMode === "PRIORITY_ONLY"
+              ? "Empty — miner stays idle until you add games."
+              : "Empty — miner uses all non-ignored games."}
+          </p>
+        )}
+
+        {priorityGames.map((game, index) => {
+          const meta = metaFor(game);
+          return (
+            <div
+              key={game}
+              className="flex items-center gap-2 rounded-xl border border-primary/25 bg-primary/[0.06] p-2"
+            >
+              <span className="w-4 shrink-0 text-center text-2xs font-semibold tabular-nums text-primary">
+                {index + 1}
+              </span>
+              <GameArt imageUrl={meta?.imageUrl} name={game} />
+              <span className="min-w-0 flex-1 truncate text-sm font-medium">{game}</span>
+              <div className="flex shrink-0 items-center">
                 <Button
                   type="button"
-                  size="sm"
+                  size="icon-sm"
                   variant="ghost"
-                  className="h-7 w-7 p-0"
                   disabled={index === 0}
+                  aria-label={`Move ${game} up`}
                   onClick={() => movePriority(index, -1)}
                 >
                   <ArrowUp className="h-3.5 w-3.5" />
                 </Button>
                 <Button
                   type="button"
-                  size="sm"
+                  size="icon-sm"
                   variant="ghost"
-                  className="h-7 w-7 p-0"
                   disabled={index === priorityGames.length - 1}
+                  aria-label={`Move ${game} down`}
                   onClick={() => movePriority(index, 1)}
                 >
                   <ArrowDown className="h-3.5 w-3.5" />
                 </Button>
                 <Button
                   type="button"
-                  size="sm"
+                  size="icon-sm"
                   variant="ghost"
-                  className="h-7 w-7 p-0"
+                  aria-label={`Remove ${game}`}
                   onClick={() => onPriorityGamesChange(priorityGames.filter((g) => g !== game))}
                 >
                   <X className="h-3.5 w-3.5" />
                 </Button>
               </div>
-            );
-          })}
-        </CardContent>
-      </Card>
+            </div>
+          );
+        })}
+      </ListCard>
 
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Ignore list</CardTitle>
-          <CardDescription>Excluded games are never selected for mining</CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-2 min-h-[8rem]">
-          {excludeGames.length === 0 && (
-            <p className="text-sm text-muted-foreground">No ignored games.</p>
-          )}
-          {excludeGames.map((game) => {
-            const meta = metaFor(game);
-            return (
-              <div
-                key={game}
-                className="flex items-center gap-2 rounded-lg border border-border/60 p-2"
+      <ListCard
+        icon={Ban}
+        title="Ignore list"
+        description="Excluded games are never selected for mining"
+        count={excludeGames.length}
+      >
+        {excludeGames.length === 0 && (
+          <p className="rounded-xl border border-dashed border-white/[0.08] px-3 py-4 text-center text-xs text-muted-foreground">
+            No ignored games.
+          </p>
+        )}
+
+        {excludeGames.map((game) => {
+          const meta = metaFor(game);
+          return (
+            <div
+              key={game}
+              className="flex items-center gap-2 rounded-xl border border-white/[0.06] bg-white/[0.02] p-2"
+            >
+              <GameArt imageUrl={meta?.imageUrl} name={game} />
+              <span className="min-w-0 flex-1 truncate text-sm text-muted-foreground">{game}</span>
+              <Button
+                type="button"
+                size="icon-sm"
+                variant="ghost"
+                aria-label={`Remove ${game}`}
+                onClick={() => onExcludeGamesChange(excludeGames.filter((g) => g !== game))}
               >
-                {meta?.imageUrl ? (
-                  <img
-                    src={resolveGameImageUrl({ gameImageUrl: meta.imageUrl, gameName: game })}
-                    alt=""
-                    className="h-10 w-8 rounded object-cover shrink-0"
-                    referrerPolicy="no-referrer"
-                  />
-                ) : (
-                  <div className="h-10 w-8 rounded bg-muted shrink-0" />
-                )}
-                <span className="text-sm flex-1 truncate">{game}</span>
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="ghost"
-                  className="h-7 w-7 p-0"
-                  onClick={() => onExcludeGamesChange(excludeGames.filter((g) => g !== game))}
-                >
-                  <X className="h-3.5 w-3.5" />
-                </Button>
-              </div>
-            );
-          })}
-        </CardContent>
-      </Card>
+                <X className="h-3.5 w-3.5" />
+              </Button>
+            </div>
+          );
+        })}
+      </ListCard>
     </div>
   );
 }
@@ -254,17 +300,12 @@ export function ActionFeedback({
 }) {
   if (!feedback) return null;
   return (
-    <div
-      className={cn(
-        "rounded-lg border px-4 py-3 text-sm",
-        feedback.type === "success" &&
-          "border-emerald-500/40 bg-emerald-500/10 text-emerald-300",
-        feedback.type === "error" && "border-red-500/40 bg-red-500/10 text-red-300",
-        className
-      )}
+    <Alert
+      tone={feedback.type === "success" ? "success" : "danger"}
+      className={cn("py-3", className)}
       role="status"
     >
       {feedback.message}
-    </div>
+    </Alert>
   );
 }

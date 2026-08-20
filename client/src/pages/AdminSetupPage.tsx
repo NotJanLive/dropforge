@@ -1,9 +1,12 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { ArrowRight, PartyPopper } from "lucide-react";
 import { StepWizard } from "@/components/StepWizard";
+import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Select } from "@/components/ui/select";
 import { api } from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
 
@@ -50,28 +53,42 @@ export function AdminSetupPage() {
         <div className="space-y-4">
           <div className="space-y-2">
             <Label htmlFor="username">Admin username</Label>
-            <Input id="username" value={username} onChange={(e) => setUsername(e.target.value)} />
+            <Input
+              id="username"
+              autoCapitalize="none"
+              spellCheck={false}
+              value={username}
+              onChange={(e) => setUsername(e.target.value)}
+            />
           </div>
           <div className="space-y-2">
             <Label htmlFor="password">Password (min 8 characters)</Label>
-            <Input id="password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} />
+            <Input
+              id="password"
+              type="password"
+              autoComplete="new-password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+            />
           </div>
           <div className="space-y-2">
             <Label htmlFor="mode">Default priority mode</Label>
-            <select
-              id="mode"
-              className="flex h-10 w-full rounded-lg border border-input bg-secondary/50 px-3 text-sm"
-              value={priorityMode}
-              onChange={(e) => setPriorityMode(e.target.value)}
-            >
+            <Select id="mode" value={priorityMode} onChange={(e) => setPriorityMode(e.target.value)}>
               <option value="PRIORITY_ONLY">Priority list only</option>
               <option value="ENDING_SOONEST">Ending soonest</option>
               <option value="LOW_AVBL_FIRST">Low availability first</option>
-            </select>
+            </Select>
           </div>
-          {error && <p className="text-sm text-red-400">{error}</p>}
-          <Button className="w-full" disabled={loading} onClick={submit}>
+
+          {error && (
+            <Alert tone="danger" role="alert" className="py-3">
+              {error}
+            </Alert>
+          )}
+
+          <Button className="w-full" size="lg" loading={loading} onClick={submit}>
             Continue
+            {!loading && <ArrowRight className="h-4 w-4" />}
           </Button>
         </div>
       </StepWizard>
@@ -85,9 +102,26 @@ export function AdminSetupPage() {
       title="You're all set"
       description="Your admin account is ready. Next you'll configure users and global miner settings from the dashboard."
     >
-      <Button className="w-full" disabled={loading} onClick={submit}>
-        Open dashboard
-      </Button>
+      <div className="space-y-4">
+        <div className="flex items-center gap-3 rounded-2xl border border-success/25 bg-success/[0.07] px-4 py-3.5">
+          <PartyPopper className="h-5 w-5 shrink-0 text-success" />
+          <p className="text-sm leading-relaxed text-muted-foreground">
+            Create user accounts under <span className="font-medium text-foreground">Users</span>, then
+            share their password so they can link Twitch.
+          </p>
+        </div>
+
+        {error && (
+          <Alert tone="danger" role="alert" className="py-3">
+            {error}
+          </Alert>
+        )}
+
+        <Button className="w-full" size="lg" loading={loading} onClick={submit}>
+          Open dashboard
+          {!loading && <ArrowRight className="h-4 w-4" />}
+        </Button>
+      </div>
     </StepWizard>
   );
 }

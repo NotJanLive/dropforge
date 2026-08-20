@@ -1,8 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
-import { Check, Loader2, RefreshCw, Save } from "lucide-react";
+import { Check, Gamepad2, RefreshCw, Save } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { ActionFeedback, DropListsEditor } from "@/components/DropListsEditor";
+import { EmptyState } from "@/components/EmptyState";
+import { PageHeader } from "@/components/PageHeader";
+import { TwitchImage } from "@/components/TwitchImage";
 import { api } from "@/lib/api";
 import { buildGameOptions } from "@/lib/campaignGames";
 import { resolveGameImageUrl } from "@/lib/gameImage";
@@ -67,7 +71,10 @@ export function CampaignsPage() {
       setPriorityMode(s.priorityMode);
       setDirty(false);
       setSettingsLoaded(true);
-      setFeedback({ type: "success", message: `Refreshed — ${c.campaigns.length} campaigns from Twitch.` });
+      setFeedback({
+        type: "success",
+        message: `Refreshed — ${c.campaigns.length} campaigns from Twitch.`,
+      });
     } catch (err) {
       setFeedback({
         type: "error",
@@ -107,10 +114,7 @@ export function CampaignsPage() {
     try {
       await api.updateMinerSettings({ priorityGames, excludeGames, priorityMode });
       setDirty(false);
-      setFeedback({
-        type: "success",
-        message: "Drop lists saved — miner updated.",
-      });
+      setFeedback({ type: "success", message: "Drop lists saved — miner updated." });
     } catch (err) {
       setFeedback({
         type: "error",
@@ -142,62 +146,60 @@ export function CampaignsPage() {
   if (user?.role === "admin") {
     return (
       <DashboardPage>
-        <div className="shrink-0 space-y-2">
-          <h1 className="text-2xl font-semibold">Drop lists</h1>
-          <p className="text-muted-foreground">Drop lists are configured per user account.</p>
-        </div>
+        <PageHeader title="Drop lists" description="Drop lists are configured per user account." />
       </DashboardPage>
     );
   }
 
   return (
     <DashboardPage className="gap-4">
-      <div className="shrink-0 space-y-4">
-        <div className="flex flex-wrap items-start justify-between gap-3 sm:gap-4">
-          <div className="min-w-0 flex-1">
-            <h1 className="text-xl font-semibold sm:text-2xl">Drop lists</h1>
-            <p className="text-sm text-muted-foreground sm:text-base">
-              Choose which games to prioritize mining or skip mining.
-            </p>
-          </div>
-          <div className="flex flex-wrap gap-2">
-          <Button variant="outline" onClick={() => refreshFromTwitch()} disabled={refreshing || saving || reloading}>
-            {refreshing ? (
-              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-            ) : (
-              <RefreshCw className="h-4 w-4 mr-2" />
-            )}
-            {refreshing ? "Refreshing…" : "Refresh games"}
-          </Button>
-          <Button
-            variant="outline"
-            onClick={save}
-            disabled={!settingsLoaded || saving || refreshing || reloading}
-            className={cn(dirty && "border-primary/50")}
-          >
-            {saving ? (
-              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-            ) : dirty ? (
-              <Save className="h-4 w-4 mr-2" />
-            ) : (
-              <Check className="h-4 w-4 mr-2" />
-            )}
-            {saving ? "Saving…" : dirty ? "Save" : "Save"}
-          </Button>
-          <Button onClick={reloadMiner} disabled={reloading || saving || refreshing}>
-            {reloading ? (
-              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-            ) : (
-              <RefreshCw className="h-4 w-4 mr-2" />
-            )}
-            {reloading ? "Reloading…" : "Reload miner"}
-          </Button>
-          </div>
-        </div>
+      <div className="shrink-0 space-y-3.5">
+        <PageHeader
+          eyebrow="Mining rules"
+          title="Drop lists"
+          description="Choose which games to prioritize mining or skip mining."
+          actions={
+            <>
+              <Button
+                variant="outline"
+                size="sm"
+                className="max-sm:flex-1"
+                onClick={() => refreshFromTwitch()}
+                loading={refreshing}
+                disabled={saving || reloading}
+              >
+                {!refreshing && <RefreshCw className="h-4 w-4" />}
+                Refresh games
+              </Button>
+              <Button
+                variant={dirty ? "default" : "outline"}
+                size="sm"
+                className={cn("max-sm:flex-1", dirty && "shadow-glow-sm")}
+                onClick={save}
+                loading={saving}
+                disabled={!settingsLoaded || refreshing || reloading}
+              >
+                {!saving && (dirty ? <Save className="h-4 w-4" /> : <Check className="h-4 w-4" />)}
+                {dirty ? "Save changes" : "Saved"}
+              </Button>
+              <Button
+                variant="secondary"
+                size="sm"
+                className="max-sm:w-full"
+                onClick={reloadMiner}
+                loading={reloading}
+                disabled={saving || refreshing}
+              >
+                {!reloading && <RefreshCw className="h-4 w-4" />}
+                Reload miner
+              </Button>
+            </>
+          }
+        />
         <ActionFeedback feedback={feedback} />
       </div>
 
-      <DashboardScrollArea className="flex flex-col gap-4 pb-2 sm:gap-6 lg:min-h-0 lg:flex-1 lg:overflow-hidden">
+      <DashboardScrollArea className="space-y-4 pb-2 lg:flex lg:min-h-0 lg:flex-1 lg:flex-col lg:overflow-hidden">
         <div className="shrink-0">
           <DropListsEditor
             games={games}
@@ -220,47 +222,66 @@ export function CampaignsPage() {
         </div>
 
         <Card className="flex min-h-0 flex-col lg:flex-1 lg:overflow-hidden">
-          <CardHeader className="shrink-0 pb-3">
-            <CardTitle className="text-base">Available games</CardTitle>
-            <CardDescription>
-              {games.length} games with drop campaigns on Twitch (read-only overview)
+          <CardHeader className="shrink-0 gap-1.5 pb-3">
+            <div className="flex items-center justify-between gap-2">
+              <CardTitle className="flex items-center gap-2 text-sm">
+                <Gamepad2 className="h-4 w-4 text-muted-foreground" />
+                Available games
+              </CardTitle>
+              <Badge variant="neutral" className="tabular-nums">
+                {games.length}
+              </Badge>
+            </div>
+            <CardDescription className="text-xs">
+              Games with drop campaigns on Twitch — read-only overview
             </CardDescription>
           </CardHeader>
-          <CardContent className="pt-0 lg:min-h-0 lg:flex-1 lg:overflow-y-auto lg:pr-1">
-            <div className="grid gap-2 pb-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-              {games.map((g) => {
-                const inPriority = priorityGames.includes(g.name);
-                const ignored = excludeGames.includes(g.name);
-                return (
-                  <div
-                    key={g.name}
-                    className={cn(
-                      "flex items-center gap-2 rounded-lg border p-2 text-sm",
-                      inPriority && "border-primary/40 bg-primary/5",
-                      ignored && "opacity-50 border-border/40"
-                    )}
-                  >
-                    {g.imageUrl ? (
-                      <img
+
+          <CardContent className="scroll-slim pt-0 lg:min-h-0 lg:flex-1 lg:overflow-y-auto">
+            {games.length === 0 ? (
+              <EmptyState
+                compact
+                icon={Gamepad2}
+                title="No games loaded"
+                description="Press “Refresh games” to fetch active drop campaigns from Twitch."
+              />
+            ) : (
+              <div className="grid gap-2 pb-1 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
+                {games.map((g) => {
+                  const inPriority = priorityGames.includes(g.name);
+                  const ignored = excludeGames.includes(g.name);
+                  return (
+                    <div
+                      key={g.name}
+                      className={cn(
+                        "flex items-center gap-2.5 rounded-xl border p-2 transition-colors",
+                        inPriority
+                          ? "border-primary/30 bg-primary/[0.06]"
+                          : "border-white/[0.06] bg-white/[0.02]",
+                        ignored && "opacity-45"
+                      )}
+                    >
+                      <TwitchImage
                         src={resolveGameImageUrl({ gameImageUrl: g.imageUrl, gameName: g.name })}
+                        fallbackSrc=""
                         alt=""
-                        className="h-9 w-7 shrink-0 rounded object-cover"
-                        referrerPolicy="no-referrer"
+                        className="h-10 w-[1.875rem] shrink-0 rounded-md object-cover ring-1 ring-inset ring-white/10"
+                        fallbackClassName="h-10 w-[1.875rem] shrink-0 rounded-md bg-white/[0.05]"
                       />
-                    ) : (
-                      <div className="h-9 w-7 shrink-0 rounded bg-muted" />
-                    )}
-                    <div className="min-w-0 flex-1">
-                      <p className="truncate font-medium">{g.name}</p>
-                      <p className="truncate text-xs text-muted-foreground">
-                        {g.campaignCount} campaign{g.campaignCount === 1 ? "" : "s"}
-                        {!g.linked && " · link account"}
-                      </p>
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-sm font-medium">{g.name}</p>
+                        <p className="truncate text-2xs text-muted-foreground">
+                          {g.campaignCount} campaign{g.campaignCount === 1 ? "" : "s"}
+                          {!g.linked && " · link account"}
+                        </p>
+                      </div>
+                      {inPriority && <Badge variant="primary">Priority</Badge>}
+                      {ignored && <Badge variant="outline">Ignored</Badge>}
                     </div>
-                  </div>
-                );
-              })}
-            </div>
+                  );
+                })}
+              </div>
+            )}
           </CardContent>
         </Card>
       </DashboardScrollArea>

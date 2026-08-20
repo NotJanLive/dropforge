@@ -1,6 +1,7 @@
 import { Navigate, Route, Routes } from "react-router-dom";
 import { useAuth } from "@/context/AuthContext";
 import { DashboardLayout } from "@/components/DashboardLayout";
+import { FullPageLoader } from "@/components/FullPageLoader";
 import { LoginPage } from "@/pages/LoginPage";
 import { AdminSetupPage } from "@/pages/AdminSetupPage";
 import { UserSetupPage } from "@/pages/UserSetupPage";
@@ -24,7 +25,7 @@ function ChannelsRedirect() {
 
 function ProtectedDashboard({ children }: { children: React.ReactNode }) {
   const { loading, status, user } = useAuth();
-  if (loading) return <div className="min-h-screen flex items-center justify-center text-muted-foreground">Loading...</div>;
+  if (loading) return <FullPageLoader label="Loading dashboard" />;
   if (!status?.initialized) return <Navigate to="/setup/admin" replace />;
   if (!user) return <Navigate to="/login" replace />;
   if (user.role === "admin" && !user.setupComplete) return <Navigate to="/setup/admin" replace />;
@@ -38,7 +39,7 @@ export default function App() {
   const { loading, status, user } = useAuth();
 
   if (loading) {
-    return <div className="min-h-screen flex items-center justify-center text-muted-foreground">Loading...</div>;
+    return <FullPageLoader />;
   }
 
   return (

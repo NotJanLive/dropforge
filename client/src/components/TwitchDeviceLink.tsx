@@ -1,6 +1,9 @@
 import { useState } from "react";
+import { Check, Copy, ExternalLink, RefreshCw, Shield } from "lucide-react";
+import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { api } from "@/lib/api";
+import { cn } from "@/lib/utils";
 
 interface TwitchDeviceLinkProps {
   onLinked: () => void | Promise<void>;
@@ -14,6 +17,7 @@ export function TwitchDeviceLink({ onLinked, idleHint }: TwitchDeviceLinkProps) 
   const [pollStatus, setPollStatus] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [copied, setCopied] = useState(false);
 
   const startLink = async () => {
     setError("");
@@ -47,40 +51,106 @@ export function TwitchDeviceLink({ onLinked, idleHint }: TwitchDeviceLinkProps) 
     }
   };
 
+  const copyCode = async () => {
+    try {
+      await navigator.clipboard.writeText(userCode);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1800);
+    } catch {
+      /* clipboard unavailable — the code stays visible */
+    }
+  };
+
+  const linked = pollStatus.startsWith("Twitch linked");
+
   return (
     <div className="space-y-4">
       {!userCode ? (
         <>
-          <p className="text-sm text-muted-foreground">
-            {idleHint ??
-              "Authorize Dropforge with your Twitch account using a device code at twitch.tv/activate."}
-          </p>
-          <Button className="w-full min-h-10" disabled={loading} onClick={startLink}>
-            {loading ? "Starting…" : "Start Twitch authorization"}
+          <div className="flex gap-3 rounded-2xl border border-white/[0.06] bg-white/[0.02] p-3.5">
+            <Shield className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
+            <p className="text-sm leading-relaxed text-muted-foreground">
+              {idleHint ??
+                "Authorize Dropforge with your Twitch account using a device code at twitch.tv/activate."}
+            </p>
+          </div>
+          <Button className="w-full" size="lg" loading={loading} onClick={startLink}>
+            Start Twitch authorization
           </Button>
         </>
       ) : (
         <>
-          <div className="rounded-lg bg-secondary p-4 text-center">
-            <p className="mb-1 text-xs text-muted-foreground">Your code</p>
-            <p className="text-2xl font-bold tracking-widest">{userCode}</p>
+          <div className="relative overflow-hidden rounded-2xl border border-primary/25 bg-primary/10 p-5 text-center">
+            <p className="text-2xs font-semibold uppercase tracking-micro text-muted-foreground">
+              Your device code
+            </p>
+            <p className="mt-2 font-mono text-3xl font-semibold tracking-[0.35em] text-foreground">
+              {userCode}
+            </p>
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="mt-2"
+              onClick={copyCode}
+              aria-label="Copy code"
+            >
+              {copied ? (
+                <>
+                  <Check className="h-3.5 w-3.5 text-success" /> Copied
+                </>
+              ) : (
+                <>
+                  <Copy className="h-3.5 w-3.5" /> Copy code
+                </>
+              )}
+            </Button>
           </div>
-          <Button variant="outline" className="w-full min-h-10" asChild>
+
+          <Button variant="secondary" className="w-full" size="lg" asChild>
             <a href={verificationUri} target="_blank" rel="noreferrer">
               Open twitch.tv/activate
+              <ExternalLink className="h-4 w-4" />
             </a>
           </Button>
-          {pollStatus && <p className="text-sm text-muted-foreground">{pollStatus}</p>}
+
+          {pollStatus && (
+            <div
+              className={cn(
+                "flex items-center justify-center gap-2 rounded-xl border px-3 py-2.5 text-sm",
+                linked
+                  ? "border-success/25 bg-success/[0.07] text-success"
+                  : "border-white/[0.06] bg-white/[0.02] text-muted-foreground"
+              )}
+            >
+              {linked ? (
+                <Check className="h-4 w-4" />
+              ) : (
+                <span className="relative flex h-2 w-2">
+                  <span className="absolute inset-0 animate-pulse-ring rounded-full bg-primary" />
+                  <span className="relative h-2 w-2 rounded-full bg-primary" />
+                </span>
+              )}
+              {pollStatus}
+              {loading && !linked && (
+                <span className="text-muted-foreground/60">· checking every {intervalSec}s</span>
+              )}
+            </div>
+          )}
+
           {!loading && pollStatus.startsWith("Waiting") && (
             <Button variant="ghost" className="w-full" onClick={startLink}>
+              <RefreshCw className="h-4 w-4" />
               Generate new code
             </Button>
           )}
         </>
       )}
-      {error && <p className="text-sm text-red-400">{error}</p>}
-      {loading && userCode && (
-        <p className="text-xs text-muted-foreground">Checking every {intervalSec}s…</p>
+
+      {error && (
+        <Alert tone="danger" role="alert" className="py-3">
+          {error}
+        </Alert>
       )}
     </div>
   );

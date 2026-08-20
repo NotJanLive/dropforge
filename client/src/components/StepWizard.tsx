@@ -1,5 +1,6 @@
-import { motion } from "framer-motion";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { AuthShell } from "@/components/AuthShell";
+import { Card, CardContent, CardHeader } from "@/components/ui/card";
+import { cn } from "@/lib/utils";
 
 interface StepWizardProps {
   title: string;
@@ -11,34 +12,38 @@ interface StepWizardProps {
 
 export function StepWizard({ title, description, step, totalSteps, children }: StepWizardProps) {
   return (
-    <div className="flex min-h-screen items-center justify-center overflow-y-auto p-4 sm:p-6">
-      <motion.div
-        initial={{ opacity: 0, y: 12 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.35 }}
-        className="w-full max-w-lg"
-      >
-        <Card>
-          <CardHeader>
-            <div className="flex items-center justify-between mb-2">
-              <span className="text-xs text-muted-foreground">
+    <AuthShell>
+      <Card className="shadow-lift">
+        <CardHeader className="gap-4 pb-4">
+          <div className="space-y-2.5">
+            <div className="flex items-center justify-between gap-3">
+              <span className="text-2xs font-semibold uppercase tracking-micro text-muted-foreground">
                 Step {step + 1} of {totalSteps}
               </span>
-              <div className="flex gap-1">
-                {Array.from({ length: totalSteps }).map((_, i) => (
-                  <div
-                    key={i}
-                    className={`h-1.5 w-6 rounded-full ${i <= step ? "bg-primary" : "bg-muted"}`}
-                  />
-                ))}
-              </div>
+              <span className="text-2xs font-medium tabular-nums text-muted-foreground/70">
+                {Math.round(((step + 1) / totalSteps) * 100)}%
+              </span>
             </div>
-            <CardTitle>{title}</CardTitle>
-            <CardDescription>{description}</CardDescription>
-          </CardHeader>
-          <CardContent>{children}</CardContent>
-        </Card>
-      </motion.div>
-    </div>
+            <div className="flex gap-1.5" role="progressbar" aria-valuenow={step + 1} aria-valuemin={1} aria-valuemax={totalSteps}>
+              {Array.from({ length: totalSteps }).map((_, i) => (
+                <span
+                  key={i}
+                  className={cn(
+                    "h-1.5 flex-1 rounded-full transition-all duration-500 ease-spring",
+                    i <= step ? "bg-primary shadow-glow-sm" : "bg-white/[0.07]"
+                  )}
+                />
+              ))}
+            </div>
+          </div>
+
+          <div className="space-y-1.5">
+            <h1 className="text-lg font-semibold leading-tight tracking-tight">{title}</h1>
+            <p className="text-sm leading-relaxed text-muted-foreground">{description}</p>
+          </div>
+        </CardHeader>
+        <CardContent>{children}</CardContent>
+      </Card>
+    </AuthShell>
   );
 }

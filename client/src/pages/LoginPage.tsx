@@ -1,7 +1,8 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { motion } from "framer-motion";
-import { Hammer } from "lucide-react";
+import { Eye, EyeOff, LogIn } from "lucide-react";
+import { AuthShell } from "@/components/AuthShell";
+import { Alert } from "@/components/ui/alert";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -12,6 +13,7 @@ import { useAuth } from "@/context/AuthContext";
 export function LoginPage() {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
@@ -39,37 +41,65 @@ export function LoginPage() {
   };
 
   return (
-    <div className="flex min-h-screen items-center justify-center overflow-y-auto p-4 sm:p-6">
-      <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="w-full max-w-md">
-        <div className="flex items-center justify-center gap-2 mb-8">
-          <div className="h-10 w-10 rounded-xl bg-primary/20 flex items-center justify-center">
-            <Hammer className="h-5 w-5 text-primary" />
-          </div>
-          <h1 className="text-2xl font-semibold">Dropforge</h1>
-        </div>
-        <Card>
-          <CardHeader>
-            <CardTitle>Sign in</CardTitle>
-            <CardDescription>Access your drop mining dashboard</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <form onSubmit={submit} className="space-y-4">
-              <div className="space-y-2">
-                <Label htmlFor="username">Username</Label>
-                <Input id="username" value={username} onChange={(e) => setUsername(e.target.value)} />
+    <AuthShell>
+      <Card className="shadow-lift">
+        <CardHeader className="pb-4">
+          <CardTitle className="text-lg">Sign in</CardTitle>
+          <CardDescription>Access your drop mining dashboard.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <form onSubmit={submit} className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="username">Username</Label>
+              <Input
+                id="username"
+                autoComplete="username"
+                autoCapitalize="none"
+                spellCheck={false}
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="password">Password</Label>
+              <div className="relative">
+                <Input
+                  id="password"
+                  type={showPassword ? "text" : "password"}
+                  autoComplete="current-password"
+                  className="pr-11"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword((v) => !v)}
+                  aria-label={showPassword ? "Hide password" : "Show password"}
+                  className="absolute right-1.5 top-1/2 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-white/[0.06] hover:text-foreground"
+                >
+                  {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                </button>
               </div>
-              <div className="space-y-2">
-                <Label htmlFor="password">Password</Label>
-                <Input id="password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} />
-              </div>
-              {error && <p className="text-sm text-red-400">{error}</p>}
-              <Button type="submit" className="w-full" disabled={loading}>
-                Sign in
-              </Button>
-            </form>
-          </CardContent>
-        </Card>
-      </motion.div>
-    </div>
+            </div>
+
+            {error && (
+              <Alert tone="danger" role="alert" className="py-3">
+                {error}
+              </Alert>
+            )}
+
+            <Button type="submit" className="w-full" size="lg" loading={loading}>
+              {!loading && <LogIn className="h-4 w-4" />}
+              Sign in
+            </Button>
+          </form>
+        </CardContent>
+      </Card>
+
+      <p className="mt-5 text-center text-xs leading-relaxed text-muted-foreground/70">
+        Accounts are created by your Dropforge admin.
+      </p>
+    </AuthShell>
   );
 }

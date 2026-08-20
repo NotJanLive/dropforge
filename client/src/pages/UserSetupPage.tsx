@@ -1,13 +1,17 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { X } from "lucide-react";
+import { ArrowRight, GripVertical, Loader2, Plus, X } from "lucide-react";
 import { StepWizard } from "@/components/StepWizard";
+import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Select } from "@/components/ui/select";
 import { TwitchDeviceLink } from "@/components/TwitchDeviceLink";
 import { api } from "@/lib/api";
 import { buildGameOptions, gamesAvailableForAdd } from "@/lib/campaignGames";
+import { resolveGameImageUrl } from "@/lib/gameImage";
+import { TwitchImage } from "@/components/TwitchImage";
 import { useAuth } from "@/context/AuthContext";
 
 type CampaignItem = {
@@ -121,22 +125,32 @@ export function UserSetupPage() {
   const title = titles[wizardStep] ?? titles[0];
 
   return (
-    <StepWizard
-      step={wizardStep}
-      totalSteps={totalSteps}
-      title={title[0]}
-      description={title[1]}
-    >
+    <StepWizard step={wizardStep} totalSteps={totalSteps} title={title[0]} description={title[1]}>
       {step === 0 && (
         <div className="space-y-4">
           <div className="space-y-2">
-            <Label>New password</Label>
-            <Input type="password" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} />
+            <Label htmlFor="new-password">New password</Label>
+            <Input
+              id="new-password"
+              type="password"
+              autoComplete="new-password"
+              value={newPassword}
+              onChange={(e) => setNewPassword(e.target.value)}
+            />
           </div>
           <div className="space-y-2">
-            <Label>Confirm password</Label>
-            <Input type="password" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} />
+            <Label htmlFor="confirm-password">Confirm password</Label>
+            <Input
+              id="confirm-password"
+              type="password"
+              autoComplete="new-password"
+              value={confirmPassword}
+              onChange={(e) => setConfirmPassword(e.target.value)}
+            />
           </div>
+          <p className="text-xs leading-relaxed text-muted-foreground">
+            At least 8 characters. Both fields must match.
+          </p>
         </div>
       )}
 
@@ -151,14 +165,15 @@ export function UserSetupPage() {
       )}
 
       {step === 2 && (
-        <p className="flex items-center gap-2 text-sm text-muted-foreground">
-          Loading active games from Twitch…
-        </p>
+        <div className="flex items-center gap-3 rounded-2xl border border-white/[0.06] bg-white/[0.02] px-4 py-4">
+          <Loader2 className="h-4 w-4 shrink-0 animate-spin text-primary" />
+          <p className="text-sm text-muted-foreground">Loading active games from Twitch…</p>
+        </div>
       )}
 
       {step === 3 && (
         <div className="space-y-4">
-          <p className="text-sm text-muted-foreground">
+          <p className="text-sm leading-relaxed text-muted-foreground">
             {availableGames.length} game{availableGames.length === 1 ? "" : "s"} with drop campaigns
             {priorityGames.length === 0
               ? " — optional, add any below or finish without."
@@ -166,16 +181,16 @@ export function UserSetupPage() {
           </p>
 
           {availableGames.length === 0 ? (
-            <p className="text-sm text-amber-400/90">
-              No campaigns found on Twitch right now. You can finish setup and add games later under Drop lists.
-            </p>
+            <Alert tone="warning">
+              No campaigns found on Twitch right now. You can finish setup and add games later under
+              Drop lists.
+            </Alert>
           ) : (
-            <>
-              <div className="space-y-2">
-                <Label htmlFor="setup-game">Game</Label>
-                <select
+            <div className="space-y-2">
+              <Label htmlFor="setup-game">Game</Label>
+              <div className="flex gap-2">
+                <Select
                   id="setup-game"
-                  className="flex h-10 w-full rounded-lg border border-input bg-secondary/50 px-3 text-sm"
                   value={pickGame}
                   onChange={(e) => setPickGame(e.target.value)}
                 >
@@ -185,50 +200,70 @@ export function UserSetupPage() {
                       {g.name} ({g.campaignCount} campaign{g.campaignCount === 1 ? "" : "s"})
                     </option>
                   ))}
-                </select>
+                </Select>
+                <Button
+                  type="button"
+                  variant="secondary"
+                  size="icon"
+                  className="h-11 w-11 shrink-0"
+                  aria-label="Add game"
+                  disabled={!pickGame}
+                  onClick={addPriorityGame}
+                >
+                  <Plus className="h-4 w-4" />
+                </Button>
               </div>
-
-              <Button
-                type="button"
-                variant="outline"
-                className="w-full"
-                disabled={!pickGame}
-                onClick={addPriorityGame}
-              >
-                Add game
-              </Button>
-            </>
+            </div>
           )}
 
           {priorityGames.length > 0 && (
-            <ul className="space-y-2 rounded-lg border border-border/60 p-2">
-              {priorityGames.map((game) => (
-                <li
-                  key={game}
-                  className="flex items-center gap-2 rounded-md bg-secondary/40 px-2 py-1.5 text-sm"
-                >
-                  <span className="flex-1 truncate">{game}</span>
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="ghost"
-                    className="h-7 w-7 shrink-0 p-0"
-                    onClick={() => setPriorityGames(priorityGames.filter((g) => g !== game))}
-                    aria-label={`Remove ${game}`}
+            <ul className="space-y-2">
+              {priorityGames.map((game, index) => {
+                const meta = availableGames.find((g) => g.name === game);
+                return (
+                  <li
+                    key={game}
+                    className="flex items-center gap-2.5 rounded-xl border border-primary/25 bg-primary/[0.06] p-2"
                   >
-                    <X className="h-3.5 w-3.5" />
-                  </Button>
-                </li>
-              ))}
+                    <span className="flex w-5 shrink-0 items-center justify-center text-2xs font-semibold tabular-nums text-primary">
+                      {index + 1}
+                    </span>
+                    <TwitchImage
+                      src={resolveGameImageUrl({ gameImageUrl: meta?.imageUrl, gameName: game })}
+                      fallbackSrc=""
+                      alt=""
+                      className="h-9 w-7 shrink-0 rounded-md object-cover"
+                      fallbackClassName="h-9 w-7 shrink-0 rounded-md bg-white/[0.06]"
+                    />
+                    <span className="min-w-0 flex-1 truncate text-sm font-medium">{game}</span>
+                    <GripVertical className="h-4 w-4 shrink-0 text-muted-foreground/40" aria-hidden />
+                    <Button
+                      type="button"
+                      size="icon-sm"
+                      variant="ghost"
+                      onClick={() => setPriorityGames(priorityGames.filter((g) => g !== game))}
+                      aria-label={`Remove ${game}`}
+                    >
+                      <X className="h-3.5 w-3.5" />
+                    </Button>
+                  </li>
+                );
+              })}
             </ul>
           )}
         </div>
       )}
 
-      {error && <p className="mt-4 text-sm text-red-400">{error}</p>}
+      {error && (
+        <Alert tone="danger" role="alert" className="mt-4 py-3">
+          {error}
+        </Alert>
+      )}
+
       {step !== 2 && step !== 1 && (
-        <Button className="mt-4 w-full" disabled={loading} onClick={next}>
-          {loading ? "Please wait…" : step === 3 ? "Finish setup" : "Continue"}
+        <Button className="mt-5 w-full" size="lg" loading={loading} onClick={next}>
+          {step === 3 ? "Finish setup" : "Continue"}
+          {!loading && <ArrowRight className="h-4 w-4" />}
         </Button>
       )}
     </StepWizard>
