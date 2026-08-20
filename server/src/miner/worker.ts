@@ -11,6 +11,7 @@ import {
   ONLINE_DELAY_MS,
   MAX_CHANNELS,
   CHANNEL_REFRESH_MS,
+  DROP_CHECK_CHANNELS,
   LOOP_INTERVAL_MS,
   INVENTORY_MAINTENANCE_MS,
   IDLE_INVENTORY_REFRESH_MS,
@@ -39,7 +40,7 @@ import {
   finalizeCampaigns,
   resolveFocusedCampaign,
 } from "./inventory.js";
-import { fetchStreamInfo, sendWatch, sendWatchStream, channelHasCampaignDrops } from "./channel.js";
+import { fetchStreamInfo, sendWatch, sendWatchStream, checkChannelCampaignDrops } from "./channel.js";
 import { GqlClient } from "./gql.js";
 import { computeActiveMining, updateDropMinutesInCampaigns, extractImagesFromSession } from "./progress.js";
 
@@ -177,32 +178,64 @@ export class MinerWorker {
     for (const ch of this.channels) this.subscribeChannel(ch);
   }
 
+  /**
+   * Ask Twitch which of the candidate channels serve the focused campaign.
+   *
+   * The answer is advisory only — see checkChannelCampaignDrops. Channels are
+   * excluded solely when Twitch reports no viewer drop campaigns at all;
+   * "not listed" leaves the channel unverified (undefined) so it stays a
+   * candidate. Only the top channels are probed: the flag is a preference
+   * signal, not a gate, so probing all ~100 directory results is wasted calls.
+   */
   private async markChannelDropFlags() {
     const focused = this.getFocusedCampaigns();
     if (focused.length === 0) return;
 
-    const concurrency = 10;
-    for (let i = 0; i < this.channels.length; i += concurrency) {
-      const batch = this.channels.slice(i, i + concurrency);
+    for (const ch of this.channels) {
+      if (!ch.online || !ch.id || !/^\d+$/.test(ch.id)) ch.dropsEnabled = false;
+    }
+
+    const probes = this.channels
+      .filter((c) => c.online && c.id && /^\d+$/.test(c.id))
+      .sort((a, b) => b.viewers - a.viewers)
+      .slice(0, DROP_CHECK_CHANNELS);
+
+    let confirmed = 0;
+    let none = 0;
+    const concurrency = 5;
+    for (let i = 0; i < probes.length; i += concurrency) {
+      const batch = probes.slice(i, i + concurrency);
       await Promise.all(
         batch.map(async (ch) => {
-          if (!ch.online || !ch.id || !/^\d+$/.test(ch.id)) {
+          const check = await checkChannelCampaignDrops(this.auth, ch.id, focused);
+          if (check === "confirmed") {
+            ch.dropsEnabled = true;
+            confirmed++;
+          } else if (check === "none") {
             ch.dropsEnabled = false;
-            return;
+            none++;
+          } else {
+            ch.dropsEnabled = undefined;
           }
-          ch.dropsEnabled = await channelHasCampaignDrops(this.auth, ch.id, focused);
         })
+      );
+    }
+
+    if (probes.length > 0 && confirmed === 0 && none < probes.length) {
+      this.addLog(
+        "info",
+        `Twitch did not list this campaign on any channel — using drops-enabled directory results`
       );
     }
   }
 
-  /** Channels with drops enabled for the focused campaign (UI + mining). */
+  /** Candidate channels for the focused campaign (UI + mining). */
   private getDisplayChannels(): ChannelInfo[] {
-    return this.channels.filter((c) => c.dropsEnabled === true);
+    return this.channels.filter((c) => c.dropsEnabled !== false);
   }
 
   private pruneChannelsWithoutDrops() {
-    this.channels = this.channels.filter((c) => c.dropsEnabled === true);
+    this.channels = this.channels.filter((c) => c.dropsEnabled !== false);
   }
 
   private async resolveChannelIds(channels: ChannelInfo[]) {
@@ -672,7 +705,7 @@ export class MinerWorker {
 
   private ensureWatchingInChannelList() {
     if (!this.watching) return;
-    if (this.watching.dropsEnabled !== true) return;
+    if (this.watching.dropsEnabled === false) return;
     const exists = this.channels.some((c) => sameLogin(c.login, this.watching!.login));
     if (!exists) {
       this.channels.unshift({ ...this.watching });
@@ -715,13 +748,18 @@ export class MinerWorker {
         this.addLog("warn", msg);
       }
 
-      if (!userInitiated && focused.length > 0 && ch.dropsEnabled !== true) {
-        const hasDrops = ch.id && /^\d+$/.test(ch.id)
-          ? await channelHasCampaignDrops(this.auth, ch.id, focused)
-          : false;
-        ch.dropsEnabled = hasDrops;
-        if (!hasDrops) {
-          this.addLog("warn", `${login} does not have campaign drops active — skipping`);
+      // Verify only when we have no verdict yet, and skip the channel only if
+      // Twitch reports it serves no drop campaigns at all. "Campaign not listed"
+      // is inconclusive (see checkChannelCampaignDrops) and must not block.
+      if (!userInitiated && focused.length > 0 && ch.dropsEnabled === undefined) {
+        const check =
+          ch.id && /^\d+$/.test(ch.id)
+            ? await checkChannelCampaignDrops(this.auth, ch.id, focused)
+            : "unknown";
+        if (check === "confirmed") ch.dropsEnabled = true;
+        if (check === "none") {
+          ch.dropsEnabled = false;
+          this.addLog("warn", `${login} has no drop campaigns active — skipping`);
           this.watching = null;
           this.broadcastId = null;
           this.emit();
@@ -1205,8 +1243,8 @@ export class MinerWorker {
         );
         this.broadcastId = null;
         this.watching = null;
-      } else if (focusedCampaigns.length > 0 && (!inList || inList.dropsEnabled !== true)) {
-        this.addLog("warn", `${this.watching.login} has no campaign drops active — searching for another channel`);
+      } else if (focusedCampaigns.length > 0 && inList?.dropsEnabled === false) {
+        this.addLog("warn", `${this.watching.login} has no drop campaigns active — searching for another channel`);
         this.broadcastId = null;
         this.watching = null;
       } else if (focusedCampaigns.length === 0) {

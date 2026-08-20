@@ -64,6 +64,8 @@ export const GQL_RATE_LIMIT_MS = 200;
 export const CAMPAIGN_DETAILS_CHUNK_SIZE = 20;
 /** Fallback channel online check when PubSub misses an event (not for drop progress). */
 export const CHANNEL_REFRESH_MS = 5 * 60 * 1000;
+/** How many candidate channels to probe with AvailableDrops (preference signal only). */
+export const DROP_CHECK_CHANNELS = 20;
 /** Full Twitch inventory reload interval (TwitchDropsMiner maintenance task). */
 export const INVENTORY_MAINTENANCE_MS = 60 * 60 * 1000;
 /** Idle miners poll more frequently so newly available campaigns start promptly. */

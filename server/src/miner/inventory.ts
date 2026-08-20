@@ -849,17 +849,20 @@ export function pickBestChannel(
   preferLogin: string | null = null,
   priorityGames: string[] = []
 ): ChannelInfo | null {
+  // dropsEnabled === false means Twitch reported no drop campaigns at all on
+  // that channel. `undefined` is "unverified", which stays eligible — Twitch's
+  // AvailableDrops endpoint routinely omits a game's own campaign.
   if (manualLogin) {
     const manual = channels.find(
       (c) =>
         c.login.toLowerCase() === manualLogin.toLowerCase() &&
         c.online &&
-        c.dropsEnabled === true
+        c.dropsEnabled !== false
     );
     if (manual) return manual;
   }
 
-  let online = channels.filter((c) => c.online && c.dropsEnabled === true);
+  let online = channels.filter((c) => c.online && c.dropsEnabled !== false);
   if (online.length === 0) return null;
 
   const needsGame = campaigns.some((c) => c.gameName || c.gameSlug);
@@ -872,6 +875,10 @@ export function pickBestChannel(
     const pa = channelPriorityRank(a, campaigns, priorityGames);
     const pb = channelPriorityRank(b, campaigns, priorityGames);
     if (pa !== pb) return pa - pb;
+    // Channels Twitch explicitly confirmed for this campaign go first.
+    const ca = a.dropsEnabled === true ? 0 : 1;
+    const cb = b.dropsEnabled === true ? 0 : 1;
+    if (ca !== cb) return ca - cb;
     if (a.aclPreferred !== b.aclPreferred) return a.aclPreferred ? -1 : 1;
     const aShared = a.campaignIds.length;
     const bShared = b.campaignIds.length;

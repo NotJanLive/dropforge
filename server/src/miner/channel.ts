@@ -37,22 +37,51 @@ function campaignMatchesDropEntry(entry: Record<string, unknown>, campaign: Camp
   return false;
 }
 
-/** True when Twitch reports this channel has drops for one of the focused campaigns. */
+/**
+ * Result of asking Twitch which drop campaigns a channel serves.
+ *
+ * `DropsHighlightService_AvailableDrops` is unreliable as an exclusion filter:
+ * for many game campaigns it returns only unrelated sitewide reward campaigns
+ * (e.g. "2 Months Audible Premium") and never lists the game's own campaign, so
+ * a missing entry does NOT mean the channel cannot credit the drop. Only treat
+ * an explicitly empty response as a negative; anything else is inconclusive.
+ */
+export type ChannelDropCheck = "confirmed" | "none" | "unknown";
+
+export async function checkChannelCampaignDrops(
+  auth: TwitchAuthSession,
+  channelId: string,
+  campaigns: CampaignInfo[]
+): Promise<ChannelDropCheck> {
+  if (campaigns.length === 0) return "unknown";
+  try {
+    const gql = new GqlClient(auth);
+    const result = await gql.availableDrops(channelId);
+    const data = (result.data ?? null) as Record<string, unknown> | null;
+    if (!data) return "unknown";
+
+    const channel = data.channel;
+    if (channel === null || channel === undefined) return "unknown";
+
+    const raw = asRecord(channel).viewerDropCampaigns;
+    if (raw === null || raw === undefined) return "none";
+    const list = asArray<Record<string, unknown>>(raw);
+    if (list.length === 0) return "none";
+
+    const matched = list.some((entry) => campaigns.some((c) => campaignMatchesDropEntry(entry, c)));
+    return matched ? "confirmed" : "unknown";
+  } catch {
+    return "unknown";
+  }
+}
+
+/** True only when Twitch explicitly lists one of the focused campaigns. */
 export async function channelHasCampaignDrops(
   auth: TwitchAuthSession,
   channelId: string,
   campaigns: CampaignInfo[]
 ): Promise<boolean> {
-  if (campaigns.length === 0) return false;
-  try {
-    const gql = new GqlClient(auth);
-    const result = await gql.availableDrops(channelId);
-    const channel = asRecord((result.data as Record<string, unknown>)?.channel);
-    const list = asArray<Record<string, unknown>>(channel.viewerDropCampaigns);
-    return list.some((entry) => campaigns.some((c) => campaignMatchesDropEntry(entry, c)));
-  } catch {
-    return false;
-  }
+  return (await checkChannelCampaignDrops(auth, channelId, campaigns)) === "confirmed";
 }
 
 const gzip = promisify(zlib.gzip);
