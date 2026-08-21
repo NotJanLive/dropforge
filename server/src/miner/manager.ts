@@ -158,6 +158,8 @@ export function createUnlinkedMinerStatus(logs: MinerLogEntry[] = []): MinerStat
 
 export class MinerManager {
   private workers = new Map<number, MinerWorker>();
+  /** In-flight ensureRunning calls, so concurrent starts share one worker. */
+  private starting = new Map<number, Promise<void>>();
   private broadcast: BroadcastFn = () => undefined;
 
   setBroadcast(fn: BroadcastFn) {
@@ -208,10 +210,31 @@ export class MinerManager {
     }
   }
 
+  /**
+   * Start the user's miner once. Callers race here — the HTTP server accepts
+   * requests before startAllEligibleUsers() finishes, and the dashboard hits
+   * /miner/status on mount and on every window focus. Without coalescing, two
+   * callers both pass the `has()` check while awaiting the Twitch session and
+   * each build a worker: the orphan keeps watching and broadcasting its own
+   * status, which makes the UI flip between two log histories.
+   */
   async ensureRunning(userId: number) {
     if (this.workers.has(userId)) return;
+    const pending = this.starting.get(userId);
+    if (pending) return pending;
+
+    const start = this.startWorker(userId).finally(() => {
+      this.starting.delete(userId);
+    });
+    this.starting.set(userId, start);
+    return start;
+  }
+
+  private async startWorker(userId: number) {
     const auth = await getTwitchSession(userId);
     if (!auth) return;
+    // Re-check: another caller may have finished while we awaited the session.
+    if (this.workers.has(userId)) return;
     const settings = loadSettings(userId);
     const logs = loadMinerLogs(userId);
     const claimedIds = loadClaimedDropIds(userId);
@@ -239,6 +262,11 @@ export class MinerManager {
   }
 
   async stop(userId: number) {
+    // Let an in-flight start finish first, otherwise it would register its
+    // worker moments after we cleared the map.
+    const pending = this.starting.get(userId);
+    if (pending) await pending.catch(() => undefined);
+
     const worker = this.workers.get(userId);
     if (worker) {
       await worker.stop();

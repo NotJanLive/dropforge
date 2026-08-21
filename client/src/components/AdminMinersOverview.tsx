@@ -254,7 +254,7 @@ function AdminUserMinerCard({
                         {mining.campaignProgress.toFixed(1)}%
                       </span>
                     </div>
-                    <Progress value={mining.campaignProgress} className="h-1.5" tone="success" />
+                    <Progress value={mining.campaignProgress} className="h-1.5" />
                     {mining.campaignRemainingMinutes > 0 && (
                       <p className="font-mono text-2xs tabular-nums text-primary">
                         {formatWatchRemaining(campaignRemainingSec)} remaining

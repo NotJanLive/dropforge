@@ -10,6 +10,19 @@ const levelStyles: Record<MinerLogEntry["level"], { text: string; dot: string }>
   info: { text: "text-muted-foreground", dot: "bg-muted-foreground/60" },
 };
 
+/** Stable per-entry key; falls back to an occurrence suffix for exact repeats. */
+function logKey(entry: MinerLogEntry, index: number, logs: MinerLogEntry[]): string {
+  const base = `${entry.time}-${entry.level}-${entry.message}`;
+  let repeat = 0;
+  for (let i = 0; i < index; i++) {
+    const other = logs[i];
+    if (other.time === entry.time && other.level === entry.level && other.message === entry.message) {
+      repeat++;
+    }
+  }
+  return repeat === 0 ? base : `${base}#${repeat}`;
+}
+
 function LogLine({ entry }: { entry: MinerLogEntry }) {
   const style = levelStyles[entry.level] ?? levelStyles.info;
   return (
@@ -66,7 +79,11 @@ export function LogConsole({
         {logs.length === 0 ? (
           <p className="px-2 py-1.5 text-muted-foreground/70">{emptyText}</p>
         ) : (
-          logs.map((entry, i) => <LogLine key={`${entry.time}-${i}`} entry={entry} />)
+          // Key on content, not index: entries are prepended, so an index key
+          // changes for every row on each new line and remounts the whole list.
+          logs.map((entry, i) => (
+            <LogLine key={logKey(entry, i, logs)} entry={entry} />
+          ))
         )}
       </div>
     </div>

@@ -462,7 +462,7 @@ function ProgressBlock({
             <span className="tabular-nums text-muted-foreground">{meta}</span>
             <span className="font-semibold tabular-nums">{percent.toFixed(1)}%</span>
           </div>
-          <Progress value={percent} className="h-1.5" tone={highlight ? "brand" : "success"} />
+          <Progress value={percent} className="h-1.5" />
           {countdown && (
             <p className="font-mono text-xs tabular-nums text-primary">{countdown} remaining</p>
           )}
