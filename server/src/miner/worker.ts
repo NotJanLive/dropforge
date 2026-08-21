@@ -97,6 +97,8 @@ export class MinerWorker {
   private watchGraceUntil = 0;
   private watchInFlight = false;
   private maintenanceTriggers: number[] = [];
+  /** Campaign Twitch never lists in AvailableDrops — skip re-probing it. */
+  private unlistedCampaignId: string | null = null;
   private claimedDropIds: Set<string>;
 
   constructor(
@@ -172,7 +174,7 @@ export class MinerWorker {
     await this.resolveChannelIds(
       this.channels.filter((c) => c.online && (!c.id || !/^\d+$/.test(c.id)))
     );
-    await this.markChannelDropFlags();
+    await this.markChannelDropFlags(true);
     this.pruneChannelsWithoutDrops();
     this.ensureWatchingInChannelList();
     for (const ch of this.channels) this.subscribeChannel(ch);
@@ -186,14 +188,22 @@ export class MinerWorker {
    * "not listed" leaves the channel unverified (undefined) so it stays a
    * candidate. Only the top channels are probed: the flag is a preference
    * signal, not a gate, so probing all ~100 directory results is wasted calls.
+   *
+   * Many campaigns are never listed by Twitch at all. Once a full probe comes
+   * back with zero confirmations, remember that and skip the GQL calls on the
+   * routine 5-minute refresh; `force` re-checks on a real rebuild (focus change
+   * or inventory reload).
    */
-  private async markChannelDropFlags() {
+  private async markChannelDropFlags(force = false) {
     const focused = this.getFocusedCampaigns();
     if (focused.length === 0) return;
 
     for (const ch of this.channels) {
       if (!ch.online || !ch.id || !/^\d+$/.test(ch.id)) ch.dropsEnabled = false;
     }
+
+    const focusedId = focused[0]?.id ?? null;
+    if (!force && focusedId !== null && this.unlistedCampaignId === focusedId) return;
 
     const probes = this.channels
       .filter((c) => c.online && c.id && /^\d+$/.test(c.id))
@@ -222,10 +232,17 @@ export class MinerWorker {
     }
 
     if (probes.length > 0 && confirmed === 0 && none < probes.length) {
-      this.addLog(
-        "info",
-        `Twitch did not list this campaign on any channel — using drops-enabled directory results`
-      );
+      // Log once per campaign — this is a standing property of the campaign,
+      // not an event, and it would otherwise repeat on every channel refresh.
+      if (focusedId !== null && this.unlistedCampaignId !== focusedId) {
+        this.unlistedCampaignId = focusedId;
+        this.addLog(
+          "info",
+          `Twitch does not list "${focused[0].name}" on any channel — using drops-enabled directory results`
+        );
+      }
+    } else if (confirmed > 0 && focusedId !== null && this.unlistedCampaignId === focusedId) {
+      this.unlistedCampaignId = null;
     }
   }
 
