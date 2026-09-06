@@ -75,6 +75,18 @@ export class MinerWorker {
   private watching: ChannelInfo | null = null;
   private broadcastId: string | null = null;
   private currentDrop: DropProgress | null = null;
+  /**
+   * Raw `dropCurrentSession` counter for the channel we are watching.
+   *
+   * Twitch serves exactly one drop session per channel and it is not necessarily
+   * a drop from the campaign we are mining. Keep it apart from `currentDrop`: it
+   * is only the "watch time is being credited" signal.
+   */
+  private watchSession:
+    | { dropId: string; currentMinutes: number; requiredMinutes: number }
+    | null = null;
+  /** Session drops that belong to no known campaign — logged once each. */
+  private untrackedSessionDropIds = new Set<string>();
   private logs: MinerLogEntry[] = [];
   private pubsub: PubSubPool | null = null;
   private watchTimer: NodeJS.Timeout | null = null;
@@ -133,6 +145,7 @@ export class MinerWorker {
     this.watching = null;
     this.broadcastId = null;
     this.currentDrop = null;
+    this.watchSession = null;
     this.settings.manualChannelLogin = null;
 
     if (!focused) {
@@ -466,12 +479,13 @@ export class MinerWorker {
 
   /** Infer current drop from campaign inventory when Twitch session context is unavailable.
    *  Matches TDM first_drop: pick the earnable drop with fewest remaining minutes. */
-  private inferCurrentDropFromCampaigns(): DropProgress | null {
+  private inferCurrentDropFromCampaigns(requireProgress = true): DropProgress | null {
     const focused = this.resolveFocusedCampaign();
     if (!focused) return null;
 
     const earnable = focused.drops.filter(
-      (d) => !d.isClaimed && d.requiredMinutes > 0 && d.currentMinutes > 0
+      (d) =>
+        !d.isClaimed && d.requiredMinutes > 0 && (!requireProgress || d.currentMinutes > 0)
     );
     if (earnable.length === 0) return null;
 
@@ -494,6 +508,50 @@ export class MinerWorker {
       requiredMinutes: best.requiredMinutes,
       isComplete: best.isComplete,
     };
+  }
+
+  /** Minutes on the live drop session, if Twitch has reported one for this channel. */
+  private sessionMinutes(): number | undefined {
+    return this.watchSession?.currentMinutes;
+  }
+
+  /** Twitch is crediting a drop we know nothing about — say so once, then re-check inventory. */
+  private noteUntrackedSessionDrop(
+    dropId: string,
+    currentMinutes: number,
+    requiredMinutes: number
+  ) {
+    if (this.untrackedSessionDropIds.has(dropId)) return;
+    this.untrackedSessionDropIds.add(dropId);
+    this.addLog(
+      "info",
+      `Twitch is crediting drop ${dropId} (${currentMinutes}/${requiredMinutes} min) from a campaign that is not in your inventory — showing the focused campaign instead`
+    );
+    this.forceInventoryRefresh = true;
+  }
+
+  /**
+   * Pick the drop to present as "currently mining".
+   *
+   * `DropCurrentSessionContext` returns only an id and a minute counter — no name
+   * and no campaign — and the drop it names can belong to a campaign we are not
+   * mining, or one that is missing from the inventory entirely. Adopting it blindly
+   * showed a bare UUID with that other campaign's required minutes (e.g. 188/480)
+   * stitched onto the focused campaign's header. Only ever display a drop that
+   * exists in the focused campaign; the session keeps its job as the watch signal.
+   */
+  private resolveDisplayDrop(
+    sessionDropId: string,
+    sessionDrop: DropProgress | null
+  ): DropProgress | null {
+    const focused = this.resolveFocusedCampaign();
+    const found = findDropInCampaigns(this.allCampaigns, sessionDropId);
+    if (found && (!focused || found.campaign.id === focused.id)) return sessionDrop;
+    // Not the campaign we are mining: fall back to the focused campaign's own
+    // next drop. Progress on it lands with the next inventory refresh.
+    const inferred = this.inferCurrentDropFromCampaigns(false);
+    if (inferred) return inferred;
+    return found ? sessionDrop : null;
   }
 
   private addLog(level: MinerLogEntry["level"], message: string) {
@@ -546,7 +604,8 @@ export class MinerWorker {
     }
 
     if (parsed.type === "drop-progress") {
-      const prevMinutes = this.currentDrop?.currentMinutes ?? -1;
+      const prevMinutes =
+        this.watchSession?.currentMinutes ?? this.currentDrop?.currentMinutes ?? -1;
       updateDropMinutesInCampaigns(
         this.allCampaigns,
         parsed.dropId,
@@ -559,33 +618,26 @@ export class MinerWorker {
         parsed.currentMinutes,
         parsed.requiredMinutes
       );
-      if (progress) {
-        this.currentDrop = progress;
-      } else {
-        const found = findDropInCampaigns(this.allCampaigns, parsed.dropId);
-        this.currentDrop = {
-          dropId: parsed.dropId,
-          dropName: found?.drop.name ?? this.currentDrop?.dropName ?? parsed.dropId,
-          campaignId: found?.campaign.id ?? this.currentDrop?.campaignId ?? "",
-          campaignName: found?.campaign.name ?? this.currentDrop?.campaignName ?? "",
-          gameName: found?.campaign.gameName ?? this.currentDrop?.gameName ?? this.watching?.gameName ?? "",
-          imageUrl: found?.drop.imageUrl ?? found?.campaign.gameImageUrl ?? this.currentDrop?.imageUrl ?? "",
-          gameImageUrl: found?.campaign.gameImageUrl ?? this.currentDrop?.gameImageUrl ?? "",
-          currentMinutes: parsed.currentMinutes,
-          requiredMinutes: parsed.requiredMinutes || found?.drop.requiredMinutes || this.currentDrop?.requiredMinutes || 0,
-          isComplete: false,
-        };
+      const required =
+        parsed.requiredMinutes ||
+        findDropInCampaigns(this.allCampaigns, parsed.dropId)?.drop.requiredMinutes ||
+        0;
+      if (!progress) {
+        this.noteUntrackedSessionDrop(parsed.dropId, parsed.currentMinutes, required);
       }
+      // Same counter `dropCurrentSession` reports, so keep the watch signal in
+      // step with it even when the drop is not one we can display.
+      this.watchSession = {
+        dropId: parsed.dropId,
+        currentMinutes: parsed.currentMinutes,
+        requiredMinutes: required || this.watchSession?.requiredMinutes || 0,
+      };
+      this.currentDrop = this.resolveDisplayDrop(parsed.dropId, progress) ?? this.currentDrop;
       if (parsed.currentMinutes > prevMinutes) {
         this.lastWatchAt = new Date().toISOString();
         this.lastWatchMinutes = parsed.currentMinutes;
       }
-      const required =
-        parsed.requiredMinutes ||
-        findDropInCampaigns(this.allCampaigns, parsed.dropId)?.drop.requiredMinutes ||
-        this.currentDrop?.requiredMinutes ||
-        0;
-      if (required > 0 && parsed.currentMinutes >= required) {
+      if (progress && required > 0 && parsed.currentMinutes >= required) {
         void this.onDropWatchComplete(parsed.dropId, parsed.dropInstanceId);
       }
       this.emit();
@@ -749,6 +801,8 @@ export class MinerWorker {
       const info = await fetchStreamInfo(this.auth, login);
       const ch = this.upsertChannel(login, info);
       this.watching = ch;
+      // Each channel gets its own drop session — never carry the last one over.
+      this.watchSession = null;
 
       const focused = this.getFocusedCampaigns();
       const needGame = focused.map((c) => c.gameName).filter(Boolean);
@@ -797,8 +851,9 @@ export class MinerWorker {
         this.consecutiveStallTicks = 0;
         this.consecutiveWatchFailures = 0;
         this.watchGraceUntil = Date.now() + 65_000;
-        if (this.currentDrop) {
-          this.lastWatchMinutes = this.currentDrop.currentMinutes;
+        const startMinutes = this.sessionMinutes() ?? this.currentDrop?.currentMinutes;
+        if (startMinutes !== undefined) {
+          this.lastWatchMinutes = startMinutes;
         }
         void this.performWatch();
         if (userInitiated || !sameLogin(this.watching?.login, login)) {
@@ -1074,6 +1129,7 @@ export class MinerWorker {
       this.watching = null;
       this.broadcastId = null;
       this.currentDrop = null;
+      this.watchSession = null;
     }
     if (this.state !== "IDLE" || this.message !== message) {
       this.state = "IDLE";
@@ -1110,6 +1166,7 @@ export class MinerWorker {
       this.watching = null;
       this.broadcastId = null;
       this.currentDrop = null;
+      this.watchSession = null;
       const next = this.resolveFocusedCampaign();
       if (next) {
         await this.buildFocusedChannelList(next);
@@ -1155,6 +1212,7 @@ export class MinerWorker {
     this.watching = null;
     this.broadcastId = null;
     this.currentDrop = null;
+    this.watchSession = null;
   }
 
   /** Whether the current channel still matches priority / ignore lists and mining campaigns. */
@@ -1421,17 +1479,26 @@ export class MinerWorker {
               currentMinutes,
               requiredMinutes
             );
-            this.currentDrop = this.buildDropProgressFromSession(
-              session,
-              newDropId,
-              currentMinutes,
-              requiredMinutes
-            );
+            this.watchSession = { dropId: newDropId, currentMinutes, requiredMinutes };
             const found = findDropInCampaigns(this.allCampaigns, newDropId);
-            this.addLog(
-              "info",
-              `Now mining: ${found?.drop.name ?? newDropId}${found ? ` (${found.campaign.gameName})` : ""}`
-            );
+            if (!found) {
+              this.noteUntrackedSessionDrop(newDropId, currentMinutes, requiredMinutes);
+            }
+            const sessionDrop = found
+              ? this.buildDropProgressFromSession(
+                  session,
+                  newDropId,
+                  currentMinutes,
+                  requiredMinutes
+                )
+              : null;
+            this.currentDrop = this.resolveDisplayDrop(newDropId, sessionDrop);
+            if (this.currentDrop) {
+              this.addLog(
+                "info",
+                `Now mining: ${this.currentDrop.dropName}${this.currentDrop.gameName ? ` (${this.currentDrop.gameName})` : ""}`
+              );
+            }
           }
           return;
         }
@@ -1513,7 +1580,8 @@ export class MinerWorker {
       const currentMinutes = Number(session.currentMinutesWatched ?? 0);
       const requiredMinutes = Number(session.requiredMinutesWatched ?? 0);
 
-      const prevDropId = this.currentDrop?.dropId;
+      const prevDropId = this.watchSession?.dropId;
+      this.watchSession = { dropId, currentMinutes, requiredMinutes };
       if (prevDropId && prevDropId !== dropId) {
         const prev = findDropInCampaigns(this.allCampaigns, prevDropId);
         if (prev) {
@@ -1535,7 +1603,19 @@ export class MinerWorker {
       if (campaignId) await this.ensureCampaignDrops(campaignId, dropId);
 
       updateDropMinutesInCampaigns(this.allCampaigns, dropId, currentMinutes, requiredMinutes);
-      this.currentDrop = this.buildDropProgressFromSession(session, dropId, currentMinutes, requiredMinutes);
+
+      const sessionDrop = findDropInCampaigns(this.allCampaigns, dropId)
+        ? this.buildDropProgressFromSession(session, dropId, currentMinutes, requiredMinutes)
+        : null;
+      if (!sessionDrop) {
+        this.noteUntrackedSessionDrop(dropId, currentMinutes, requiredMinutes);
+      }
+      this.currentDrop = this.resolveDisplayDrop(dropId, sessionDrop);
+      if (!this.currentDrop || this.currentDrop.dropId !== dropId) {
+        // We are not mining the drop Twitch reports for this channel; there is
+        // nothing of ours to claim off the back of its counter.
+        return true;
+      }
 
       if (this.currentDrop.campaignId) {
         await this.ensureCampaignDrops(this.currentDrop.campaignId, dropId);
@@ -1647,7 +1727,12 @@ export class MinerWorker {
       return;
     }
 
-    const prevMinutes = this.currentDrop?.currentMinutes ?? this.lastWatchMinutes ?? -1;
+    // Progress is measured on Twitch's own session counter, not on the drop we
+    // display — the two are the same drop in the normal case, and when they are
+    // not the session is still the only proof that watch time is being credited.
+    const prevSessionDropId = this.watchSession?.dropId ?? null;
+    const prevMinutes =
+      this.watchSession?.currentMinutes ?? this.currentDrop?.currentMinutes ?? this.lastWatchMinutes ?? -1;
 
     try {
       if (!this.watchingMatches(login)) return;
@@ -1707,27 +1792,41 @@ export class MinerWorker {
         return;
       }
 
-      const newMinutes = this.currentDrop?.currentMinutes ?? -1;
-      const req = this.currentDrop?.requiredMinutes ?? 0;
+      const newMinutes = this.watchSession?.currentMinutes ?? this.currentDrop?.currentMinutes ?? -1;
+      const req = this.watchSession?.requiredMinutes || this.currentDrop?.requiredMinutes || 0;
+      const progressDropId = this.watchSession?.dropId ?? this.currentDrop?.dropId ?? null;
+      const progressDrop = progressDropId
+        ? findDropInCampaigns(this.allCampaigns, progressDropId)
+        : null;
+      const sessionChanged = Boolean(
+        prevSessionDropId && this.watchSession && this.watchSession.dropId !== prevSessionDropId
+      );
 
       // Check if drop is complete (watch time reached or exceeded)
-      if (req > 0 && newMinutes >= req && this.currentDrop?.dropId) {
-        const found = findDropInCampaigns(this.allCampaigns, this.currentDrop.dropId);
-        if (found && !found.drop.isClaimed) {
-          void this.onDropWatchComplete(this.currentDrop.dropId);
+      if (req > 0 && newMinutes >= req && progressDropId) {
+        if (progressDrop && !progressDrop.drop.isClaimed) {
+          void this.onDropWatchComplete(progressDropId);
           this.emit();
           return;
         }
       }
 
-      if (newMinutes > prevMinutes) {
+      if (sessionChanged) {
+        // Twitch moved us onto a different drop session; its counter restarts, so
+        // the minute delta below would be meaningless.
+        this.lastWatchAt = new Date().toISOString();
+        this.lastWatchMinutes = newMinutes >= 0 ? newMinutes : null;
+        this.consecutiveStallTicks = 0;
+      } else if (newMinutes > prevMinutes) {
         this.lastWatchAt = new Date().toISOString();
         this.lastWatchMinutes = newMinutes;
         this.consecutiveStallTicks = 0;
-        this.addLog(
-          "success",
-          `Watch minute credited: ${this.currentDrop?.dropName ?? "drop"} (${newMinutes}/${req})`
-        );
+        const label = progressDrop
+          ? progressDrop.drop.name
+          : this.watchSession
+            ? "untracked campaign drop"
+            : this.currentDrop?.dropName ?? "drop";
+        this.addLog("success", `Watch minute credited: ${label} (${newMinutes}/${req})`);
       } else if (this.lastWatchAt === null) {
         this.lastWatchAt = new Date().toISOString();
         this.lastWatchMinutes = newMinutes >= 0 ? newMinutes : null;
@@ -1750,7 +1849,7 @@ export class MinerWorker {
                 : "";
           this.addLog(
             "warn",
-            `No Twitch progress yet (${newMinutes}/${this.currentDrop?.requiredMinutes ?? "?"} min) [spade=${spade.status}]${gameHint}`
+            `No Twitch progress yet (${newMinutes}/${req || "?"} min) [spade=${spade.status}]${gameHint}`
           );
         }
 
