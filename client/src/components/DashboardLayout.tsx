@@ -17,6 +17,7 @@ import {
 import type { LucideIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Alert } from "@/components/ui/alert";
 import { BrandLockup, BrandMark } from "@/components/Brand";
 import { cn } from "@/lib/utils";
 import { api } from "@/lib/api";
@@ -49,6 +50,7 @@ const extraTitles: Record<string, string> = {
 };
 
 const TWITCH_INVENTORY_URL = "https://www.twitch.tv/drops/inventory";
+const TWITCH_OUTAGE_ISSUE_URL = "https://github.com/NotJanLive/dropforge/issues/1";
 
 function useSignOut() {
   const { refresh } = useAuth();
@@ -346,6 +348,31 @@ function AccountSheet({
   );
 }
 
+// Temporary: Twitch stopped accepting new device logins for our client ID
+// (NotJanLive/dropforge#1). Remove once linking works again.
+function TwitchLoginOutageAlert() {
+  return (
+    <Alert
+      tone="warning"
+      title="Twitch linking is currently unavailable"
+      className="mb-4 shrink-0"
+      action={
+        <Button variant="outline" className="w-full sm:w-auto" asChild>
+          <a href={TWITCH_OUTAGE_ISSUE_URL} target="_blank" rel="noreferrer">
+            Details
+            <ExternalLink className="h-4 w-4" />
+          </a>
+        </Button>
+      }
+    >
+      Twitch has disabled the device login that Dropforge uses to connect accounts, and it
+      affects other third-party tools that rely on it as well. Accounts that are already linked
+      aren't affected and keep mining normally. Please avoid unlinking your account, since
+      relinking won't be possible until a working fix is found.
+    </Alert>
+  );
+}
+
 export function DashboardLayout({ children }: { children: React.ReactNode }) {
   const { pathname } = useLocation();
   const { user } = useAuth();
@@ -394,6 +421,7 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
         />
 
         <main className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden px-4 pb-3 pt-4 sm:px-6 sm:pb-4 lg:px-6 lg:py-5">
+          <TwitchLoginOutageAlert />
           <div className="flex min-h-0 min-w-0 flex-1 flex-col">{children}</div>
         </main>
 
