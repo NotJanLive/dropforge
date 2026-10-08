@@ -1,7 +1,8 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { AnimatePresence, motion } from "framer-motion";
 import {
+  AlertTriangle,
   ExternalLink,
   Gauge,
   Github,
@@ -350,28 +351,65 @@ function AccountSheet({
 
 // Temporary: Twitch stopped accepting new device logins for our client ID
 // (NotJanLive/dropforge#1). Remove once linking works again.
-function TwitchLoginOutageAlert() {
+function TwitchLoginOutageAlert({ collapsed }: { collapsed: boolean }) {
   return (
-    <Alert
-      tone="warning"
-      title="Twitch linking is currently unavailable"
-      className="mb-4 shrink-0"
-      action={
-        <Button variant="outline" className="w-full sm:w-auto" asChild>
-          <a href={TWITCH_OUTAGE_ISSUE_URL} target="_blank" rel="noreferrer">
-            Details
-            <ExternalLink className="h-4 w-4" />
-          </a>
-        </Button>
-      }
+    // Collapses while the page is scrolled down so it doesn't eat the phone screen.
+    <div
+      aria-hidden={collapsed}
+      className={cn(
+        "grid shrink-0 transition-[grid-template-rows,opacity,margin] duration-300 ease-out",
+        collapsed ? "mb-0 grid-rows-[0fr] opacity-0" : "mb-3 grid-rows-[1fr] opacity-100 sm:mb-4"
+      )}
     >
-      Twitch has disabled the device login that Dropforge uses to connect accounts, and it
-      affects other third-party tools that rely on it as well. Accounts that are already linked
-      aren't affected and keep mining normally. Please avoid unlinking your account, since
-      relinking won't be possible until a working fix is found.
-    </Alert>
+      <div className="min-h-0 overflow-hidden">
+        {/* Phones: one compact line. */}
+        <div className="flex items-center gap-2 rounded-xl border border-warning/25 bg-warning/[0.07] px-3 py-2 sm:hidden">
+          <AlertTriangle className="h-4 w-4 shrink-0 text-warning" />
+          <p className="min-w-0 flex-1 text-xs font-medium leading-snug">
+            Twitch linking is unavailable. Don't unlink your account.
+          </p>
+          <a
+            href={TWITCH_OUTAGE_ISSUE_URL}
+            target="_blank"
+            rel="noreferrer"
+            tabIndex={collapsed ? -1 : undefined}
+            className="flex shrink-0 items-center gap-1 text-xs font-semibold text-warning"
+          >
+            Details
+            <ExternalLink className="h-3.5 w-3.5" />
+          </a>
+        </div>
+
+        <Alert
+          tone="warning"
+          title="Twitch linking is currently unavailable"
+          className="max-sm:hidden"
+          action={
+            <Button variant="outline" className="w-full sm:w-auto" asChild>
+              <a
+                href={TWITCH_OUTAGE_ISSUE_URL}
+                target="_blank"
+                rel="noreferrer"
+                tabIndex={collapsed ? -1 : undefined}
+              >
+                Details
+                <ExternalLink className="h-4 w-4" />
+              </a>
+            </Button>
+          }
+        >
+          Twitch has disabled the device login that Dropforge uses to connect accounts, and it
+          affects other third-party tools that rely on it as well. Accounts that are already linked
+          aren't affected and keep mining normally. Please avoid unlinking your account, since
+          relinking won't be possible until a working fix is found.
+        </Alert>
+      </div>
+    </div>
   );
 }
+
+/** Pixels the page has to scroll before the outage notice collapses. */
+const OUTAGE_COLLAPSE_SCROLL = 24;
 
 export function DashboardLayout({ children }: { children: React.ReactNode }) {
   const { pathname } = useLocation();
@@ -384,9 +422,24 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
   const username = user?.username ?? "";
   const role = user?.role ?? "";
 
+  const [noticeCollapsed, setNoticeCollapsed] = useState(false);
+  const pageWrapRef = useRef<HTMLDivElement>(null);
+
   useEffect(() => {
     setAccountOpen(false);
+    setNoticeCollapsed(false);
   }, [pathname]);
+
+  // Below `lg` the page itself scrolls (see DashboardPage). Only react to that
+  // scroller, not to inner lists like the log console.
+  const onPageScroll = (e: React.UIEvent<HTMLElement>) => {
+    const el = e.target;
+    if (!(el instanceof HTMLElement) || el.parentElement !== pageWrapRef.current) return;
+    // Pages that barely overflow would bounce: collapsing frees space, the
+    // scroll resets to the top and the notice comes back.
+    const room = el.scrollHeight - el.clientHeight;
+    setNoticeCollapsed(room > 160 && el.scrollTop > OUTAGE_COLLAPSE_SCROLL);
+  };
 
   useEffect(() => {
     if (!accountOpen) return;
@@ -420,9 +473,14 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
           onOpenAccount={() => setAccountOpen(true)}
         />
 
-        <main className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden px-4 pb-3 pt-4 sm:px-6 sm:pb-4 lg:px-6 lg:py-5">
-          <TwitchLoginOutageAlert />
-          <div className="flex min-h-0 min-w-0 flex-1 flex-col">{children}</div>
+        <main
+          className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden px-4 pb-3 pt-4 sm:px-6 sm:pb-4 lg:px-6 lg:py-5"
+          onScrollCapture={onPageScroll}
+        >
+          <TwitchLoginOutageAlert collapsed={noticeCollapsed} />
+          <div ref={pageWrapRef} className="flex min-h-0 min-w-0 flex-1 flex-col">
+            {children}
+          </div>
         </main>
 
         <MobileTabBar navItems={navItems} pathname={pathname} />
