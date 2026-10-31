@@ -178,8 +178,12 @@ router.get("/miner/status", requireUser, async (req, res) => {
 
 router.post("/miner/reload", requireUser, async (req, res) => {
   const user = (req as typeof req & { currentUser: { id: number } }).currentUser;
-  await minerManager.reload(user.id);
-  res.json({ ok: true, status: minerManager.getStatus(user.id) });
+  try {
+    await minerManager.reload(user.id);
+    res.json({ ok: true, status: minerManager.getStatus(user.id) });
+  } catch (err) {
+    res.status(500).json({ error: err instanceof Error ? err.message : "Reload failed" });
+  }
 });
 
 router.post("/miner/select-campaign", requireUser, async (req, res) => {
