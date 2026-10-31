@@ -2,7 +2,7 @@ import { useNavigate } from "react-router-dom";
 import { ArrowLeft } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { TwitchDeviceLink } from "@/components/TwitchDeviceLink";
+import { TwitchBrowserLink } from "@/components/TwitchBrowserLink";
 import { DashboardPage, DashboardScrollArea } from "@/components/DashboardPage";
 import { PageHeader } from "@/components/PageHeader";
 import { api } from "@/lib/api";
@@ -39,13 +39,13 @@ export function TwitchLinkPage() {
       <DashboardScrollArea className="pb-2">
         <Card className="max-w-lg">
           <CardHeader className="pb-4">
-            <CardTitle className="text-sm">Twitch device login</CardTitle>
+            <CardTitle className="text-sm">Twitch login</CardTitle>
             <CardDescription className="text-xs">
-              Same flow as initial setup — enter the code at twitch.tv/activate.
+              Same flow as initial setup — log in on twitch.tv.
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <TwitchDeviceLink onLinked={onLinked} />
+            <TwitchBrowserLink onLinked={onLinked} />
           </CardContent>
         </Card>
       </DashboardScrollArea>

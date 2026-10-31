@@ -28,7 +28,7 @@ export const CLIENT_TYPES = {
     clientId: "kd1unb4b3q4t58fwlpcbzcbnm76a8fp",
     origin: "https://www.twitch.tv",
     userAgent:
-      "Dalvik/2.1.0 (Linux; U; Android 16; SM-S911B Build/TP1A.220624.014) tv.twitch.android.app/25.3.0/2503006",
+      "Dalvik/2.1.0 (Linux; U; Android 16; SM-S911B Build/TP1A.220624.014) tv.twitch.android.app/31.8.0/3108006",
   },
   SMARTBOX: {
     clientId: "ue6666qo983tsx6so1t0vnawi233wa",
@@ -58,7 +58,10 @@ export const MAX_CHANNELS = Math.floor(MAX_TOPICS / TOPICS_PER_CHANNEL);
 export const PING_INTERVAL_MS = 3 * 60 * 1000;
 export const PING_TIMEOUT_MS = 10 * 1000;
 export const ONLINE_DELAY_MS = 120 * 1000;
-export const WATCH_INTERVAL_MS = 59 * 1000;
+/** How often the stream playlist chunks are requested (TDM WATCH_INTERVAL). */
+export const WATCH_INTERVAL_MS = 20 * 1000;
+/** Watch ticks between drop progress checks, so that a check spans about a minute. */
+export const PROGRESS_CHECK_TICKS = 3;
 export const GQL_RATE_LIMIT_MS = 200;
 /** Campaign details per GQL batch request (matches TwitchDropsMiner). */
 export const CAMPAIGN_DETAILS_CHUNK_SIZE = 20;

@@ -9,14 +9,6 @@ export interface TwitchAuthSession {
   sessionId: string;
 }
 
-export interface DeviceFlowStart {
-  deviceCode: string;
-  userCode: string;
-  verificationUri: string;
-  interval: number;
-  expiresIn: number;
-}
-
 function authHeaders(deviceId?: string, token?: string): Record<string, string> {
   const client = getClientType();
   const headers: Record<string, string> = {
@@ -71,53 +63,6 @@ export async function bootstrapDeviceId(): Promise<string> {
 
   // Twitch accepts a client-generated 32-char hex device id if cookies are unavailable
   return randomHex(16);
-}
-
-export async function startDeviceFlow(deviceId: string): Promise<DeviceFlowStart> {
-  const client = getClientType();
-  const res = await fetch("https://id.twitch.tv/oauth2/device", {
-    method: "POST",
-    headers: authHeaders(deviceId),
-    body: new URLSearchParams({
-      client_id: client.clientId,
-      scopes: "",
-    }),
-  });
-  if (!res.ok) throw new Error(`Device flow start failed: ${res.status}`);
-  const data = (await res.json()) as {
-    device_code: string;
-    user_code: string;
-    verification_uri: string;
-    interval: number;
-    expires_in: number;
-  };
-  return {
-    deviceCode: data.device_code,
-    userCode: data.user_code,
-    verificationUri: data.verification_uri,
-    interval: data.interval,
-    expiresIn: data.expires_in,
-  };
-}
-
-export async function pollDeviceToken(
-  deviceId: string,
-  deviceCode: string
-): Promise<string | null> {
-  const client = getClientType();
-  const res = await fetch("https://id.twitch.tv/oauth2/token", {
-    method: "POST",
-    headers: authHeaders(deviceId),
-    body: new URLSearchParams({
-      client_id: client.clientId,
-      device_code: deviceCode,
-      grant_type: "urn:ietf:params:oauth:grant-type:device_code",
-    }),
-  });
-  if (res.status === 400) return null;
-  if (!res.ok) throw new Error(`Token poll failed: ${res.status}`);
-  const data = (await res.json()) as { access_token: string };
-  return data.access_token;
 }
 
 export async function validateToken(accessToken: string): Promise<{

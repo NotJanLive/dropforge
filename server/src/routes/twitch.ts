@@ -5,6 +5,7 @@ import { userMinerSettings } from "../db/schema.js";
 import { requireUser } from "../auth/middleware.js";
 import {
   beginTwitchLink,
+  completeTwitchLink,
   getTwitchSession,
   pollTwitchLink,
   unlinkTwitch,
@@ -46,14 +47,7 @@ router.get("/status", requireUser, async (req, res) => {
 router.post("/link/start", requireUser, async (req, res) => {
   const user = (req as typeof req & { currentUser: { id: number } }).currentUser;
   try {
-    const flow = await beginTwitchLink(user.id);
-    res.json({
-      userCode: flow.userCode,
-      verificationUri: flow.verificationUri,
-      expiresAt: flow.expiresAt,
-      interval: flow.interval,
-      deviceId: flow.deviceId,
-    });
+    res.json(beginTwitchLink(user.id));
   } catch (err) {
     res.status(500).json({ error: err instanceof Error ? err.message : "Failed to start link" });
   }
@@ -61,19 +55,30 @@ router.post("/link/start", requireUser, async (req, res) => {
 
 router.post("/link/poll", requireUser, async (req, res) => {
   const user = (req as typeof req & { currentUser: { id: number } }).currentUser;
-  const { deviceId } = req.body as { deviceId?: string };
-  if (!deviceId) {
-    res.status(400).json({ error: "deviceId required" });
-    return;
-  }
   try {
-    const result = await pollTwitchLink(user.id, deviceId);
+    const result = await pollTwitchLink(user.id);
     if (result.status === "completed") {
       void minerManager.ensureRunning(user.id).catch(() => undefined);
     }
     res.json(result);
   } catch (err) {
     res.status(500).json({ error: err instanceof Error ? err.message : "Poll failed" });
+  }
+});
+
+router.post("/link/complete", requireUser, async (req, res) => {
+  const user = (req as typeof req & { currentUser: { id: number } }).currentUser;
+  const { redirectUrl } = req.body as { redirectUrl?: string };
+  if (!redirectUrl) {
+    res.status(400).json({ error: "redirectUrl required" });
+    return;
+  }
+  try {
+    await completeTwitchLink(user.id, redirectUrl);
+    void minerManager.ensureRunning(user.id).catch(() => undefined);
+    res.json({ status: "completed" });
+  } catch (err) {
+    res.status(400).json({ error: err instanceof Error ? err.message : "Twitch link failed" });
   }
 });
 

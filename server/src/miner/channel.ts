@@ -86,6 +86,11 @@ export async function channelHasCampaignDrops(
 
 const gzip = promisify(zlib.gzip);
 const spadeUrlCache = new Map<string, string>();
+const streamUrlCache = new Map<string, string>();
+
+function streamCacheKey(auth: TwitchAuthSession, channelLogin: string): string {
+  return `${auth.userId}:${channelLogin.toLowerCase()}`;
+}
 
 function jsonMinify(data: unknown): string {
   return JSON.stringify(data);
@@ -119,46 +124,49 @@ function resolvePlaylistUrl(baseUrl: string, line: string): string {
   return new URL(line, baseUrl).href;
 }
 
-/** Parse m3u8 and return the last media segment/chunk URL (follows quality playlists). */
-async function resolveChunkHeadUrl(
+/** URLs listed in an m3u8 playlist. An error comes back as JSON and yields none. */
+async function fetchPlaylistUrls(
   playlistUrl: string,
-  headers: Record<string, string>,
-  depth = 0
-): Promise<string | null> {
-  if (depth > 3) return null;
-
+  headers: Record<string, string>
+): Promise<string[]> {
   const res = await fetch(playlistUrl, { headers, redirect: "follow" });
-  if (!res.ok) return null;
+  if (!res.ok) return [];
 
   const text = await res.text();
-  if (text.trimStart().startsWith("{")) {
-    try {
-      const json = JSON.parse(text) as Record<string, unknown>;
-      if (json.error) return null;
-    } catch {
-      /* not json */
-    }
-  }
+  if (/^\s*[{[]/.test(text)) return [];
 
-  const lines = text
+  return text
     .trim()
     .split("\n")
     .map((l) => l.trim())
-    .filter((l) => l && !l.startsWith("#"));
+    .filter((l) => l && !l.startsWith("#"))
+    .map((l) => resolvePlaylistUrl(playlistUrl, l));
+}
 
-  if (lines.length === 0) return null;
+async function resolveStreamUrl(
+  auth: TwitchAuthSession,
+  channelLogin: string,
+  headers: Record<string, string>
+): Promise<string | null> {
+  const cacheKey = streamCacheKey(auth, channelLogin);
+  const cached = streamUrlCache.get(cacheKey);
+  if (cached) return cached;
 
-  let last = lines[lines.length - 1];
-  if (last === "#EXT-X-ENDLIST" && lines.length > 1) {
-    last = lines[lines.length - 2];
-  }
+  const gql = new GqlClient(auth);
+  const tokenResult = await gql.playbackAccessToken(channelLogin);
+  const tokenData = (tokenResult.data as Record<string, unknown>)?.streamPlaybackAccessToken as
+    | Record<string, unknown>
+    | undefined;
+  if (!tokenData?.value || !tokenData?.signature) return null;
 
-  const resolved = resolvePlaylistUrl(playlistUrl, last);
-  if (resolved.includes(".m3u8")) {
-    return resolveChunkHeadUrl(resolved, headers, depth + 1);
-  }
+  const token = encodeURIComponent(String(tokenData.value));
+  const sig = encodeURIComponent(String(tokenData.signature));
+  const masterUrl = `https://usher.ttvnw.net/api/channel/hls/${channelLogin}.m3u8?sig=${sig}&token=${token}`;
 
-  return resolved;
+  // The last entry is usually the lowest quality.
+  const streamUrl = (await fetchPlaylistUrls(masterUrl, headers)).pop() ?? null;
+  if (streamUrl) streamUrlCache.set(cacheKey, streamUrl);
+  return streamUrl;
 }
 
 export function encodeSpadePayload(payload: Record<string, unknown>): Promise<string> {
@@ -299,41 +307,38 @@ export async function sendWatch(
 }
 
 /**
- * TDM README: "pretends to watch by fetching stream metadata" — HLS playlist + chunk HEAD.
- * See DevilXD/TwitchDropsMiner channel.py Stream.get_stream_url + _send_watch_playlist.
+ * Twitch stopped counting Spade events in October 2026; HEAD requests on every
+ * chunk of the stream playlist advance drops instead.
+ * See DevilXD/TwitchDropsMiner channel.py Stream.get_stream_url + Channel.send_watch.
  */
 export async function sendWatchStream(
   auth: TwitchAuthSession,
   channelLogin: string
 ): Promise<{ ok: boolean; detail: string }> {
+  const headers = { ...twitchStreamHeaders(auth), Connection: "close" };
+  const cacheKey = streamCacheKey(auth, channelLogin);
   try {
-    const gql = new GqlClient(auth);
-    const tokenResult = await gql.playbackAccessToken(channelLogin);
-    const tokenData = (tokenResult.data as Record<string, unknown>)?.streamPlaybackAccessToken as
-      | Record<string, unknown>
-      | undefined;
-    if (!tokenData?.value || !tokenData?.signature) {
-      return { ok: false, detail: "no playback token" };
+    const streamUrl = await resolveStreamUrl(auth, channelLogin, headers);
+    if (!streamUrl) {
+      return { ok: false, detail: "no stream url" };
     }
 
-    const headers = twitchStreamHeaders(auth);
-    const token = encodeURIComponent(String(tokenData.value));
-    const sig = encodeURIComponent(String(tokenData.signature));
-    const masterUrl = `https://usher.ttvnw.net/api/channel/hls/${channelLogin}.m3u8?sig=${sig}&token=${token}`;
-
-    const chunkUrl = await resolveChunkHeadUrl(masterUrl, { ...headers, Connection: "close" });
-    if (!chunkUrl) {
-      return { ok: false, detail: "no chunk url in playlist" };
+    const chunkUrls = await fetchPlaylistUrls(streamUrl, headers);
+    if (chunkUrls.length === 0) {
+      streamUrlCache.delete(cacheKey);
+      return { ok: false, detail: "no chunks in playlist" };
     }
 
-    const headRes = await fetch(chunkUrl, {
-      method: "HEAD",
-      headers: { ...headers, Connection: "close" },
-    });
-    return headRes.ok
-      ? { ok: true, detail: "chunk head ok" }
-      : { ok: false, detail: `chunk head ${headRes.status}` };
+    for (const chunkUrl of chunkUrls) {
+      const headRes = await fetch(chunkUrl, { method: "HEAD", headers });
+      if (!headRes.ok) {
+        streamUrlCache.delete(cacheKey);
+        return { ok: false, detail: `chunk head ${headRes.status}` };
+      }
+    }
+    return { ok: true, detail: `${chunkUrls.length} chunks ok` };
   } catch (err) {
+    streamUrlCache.delete(cacheKey);
     const msg = err instanceof Error ? err.message : "stream watch failed";
     return { ok: false, detail: msg };
   }

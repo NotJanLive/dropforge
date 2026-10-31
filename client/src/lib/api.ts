@@ -227,14 +227,15 @@ export const api = {
   twitchStatus: () =>
     request<{ linked: boolean; twitchLogin: string | null }>("/api/twitch/status"),
   twitchLinkStart: () =>
-    request<{ userCode: string; verificationUri: string; expiresAt: string; interval: number; deviceId: string }>(
-      "/api/twitch/link/start",
-      { method: "POST" }
-    ),
-  twitchLinkPoll: (deviceId: string) =>
-    request<{ status: string }>("/api/twitch/link/poll", {
+    request<{ authorizeUrl: string; browserOpened: boolean }>("/api/twitch/link/start", {
       method: "POST",
-      body: JSON.stringify({ deviceId }),
+    }),
+  twitchLinkPoll: () =>
+    request<{ status: string; error?: string }>("/api/twitch/link/poll", { method: "POST" }),
+  twitchLinkComplete: (redirectUrl: string) =>
+    request<{ status: string }>("/api/twitch/link/complete", {
+      method: "POST",
+      body: JSON.stringify({ redirectUrl }),
     }),
   twitchUnlink: () => request<{ ok: boolean }>("/api/twitch/unlink", { method: "POST" }),
   campaigns: (opts?: { refresh?: boolean }) =>

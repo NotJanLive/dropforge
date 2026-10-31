@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
-import { TwitchDeviceLink } from "@/components/TwitchDeviceLink";
+import { TwitchBrowserLink } from "@/components/TwitchBrowserLink";
 import { api } from "@/lib/api";
 import { buildGameOptions, gamesAvailableForAdd } from "@/lib/campaignGames";
 import { resolveGameImageUrl } from "@/lib/gameImage";
@@ -111,13 +111,13 @@ export function UserSetupPage() {
 
   const titles = skipPassword
     ? ([
-        ["Link Twitch", "Authorize Dropforge using Twitch device login."],
+        ["Link Twitch", "Authorize Dropforge by logging in on twitch.tv."],
         ["Loading games", "Fetching active drop campaigns from your Twitch account."],
         ["Priority games", "Optional — pick games to mine first. You can change this later under Drop lists."],
       ] as const)
     : ([
         ["Set your password", "Replace the temporary password from your admin."],
-        ["Link Twitch", "Authorize Dropforge using Twitch device login."],
+        ["Link Twitch", "Authorize Dropforge by logging in on twitch.tv."],
         ["Loading games", "Fetching active drop campaigns from your Twitch account."],
         ["Priority games", "Optional — pick games to mine first. You can change this later under Drop lists."],
       ] as const);
@@ -155,7 +155,7 @@ export function UserSetupPage() {
       )}
 
       {step === 1 && (
-        <TwitchDeviceLink
+        <TwitchBrowserLink
           onLinked={async () => {
             await api.completeUserStep(2);
             await refresh();

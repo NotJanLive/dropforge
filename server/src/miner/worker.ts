@@ -8,6 +8,7 @@ import {
   type MinerStatus,
   type PriorityMode,
   WATCH_INTERVAL_MS,
+  PROGRESS_CHECK_TICKS,
   ONLINE_DELAY_MS,
   MAX_CHANNELS,
   CHANNEL_REFRESH_MS,
@@ -40,7 +41,7 @@ import {
   finalizeCampaigns,
   resolveFocusedCampaign,
 } from "./inventory.js";
-import { fetchStreamInfo, sendWatch, sendWatchStream, checkChannelCampaignDrops } from "./channel.js";
+import { fetchStreamInfo, sendWatchStream, checkChannelCampaignDrops } from "./channel.js";
 import { GqlClient } from "./gql.js";
 import { computeActiveMining, updateDropMinutesInCampaigns, extractImagesFromSession } from "./progress.js";
 
@@ -1378,7 +1379,15 @@ export class MinerWorker {
   private startWatchLoop() {
     if (this.watchTimer) clearInterval(this.watchTimer);
     void this.performWatch();
-    this.watchTimer = setInterval(() => this.performWatch(), WATCH_INTERVAL_MS);
+    let tick = 0;
+    this.watchTimer = setInterval(() => {
+      tick = (tick + 1) % PROGRESS_CHECK_TICKS;
+      if (tick === 0) {
+        void this.performWatch();
+      } else if (this.watching && this.broadcastId) {
+        void sendWatchStream(this.auth, this.watching.login);
+      }
+    }, WATCH_INTERVAL_MS);
   }
 
   /** TDM GAMES_UPDATE: claim all ready drops from inventory. */
@@ -1736,17 +1745,14 @@ export class MinerWorker {
 
     try {
       if (!this.watchingMatches(login)) return;
-      const spade = await sendWatch(this.auth, this.watching!, this.broadcastId);
-      void sendWatchStream(this.auth, login);
+      const stream = await sendWatchStream(this.auth, login);
 
       if (!this.watchingMatches(login)) return;
 
-      if (!spade.ok) {
+      if (!stream.ok) {
         this.consecutiveWatchFailures++;
-        const errDetail =
-          spade.errors.length > 0 ? spade.errors.join("; ") : `HTTP status ${spade.status}`;
         if (this.consecutiveWatchFailures === 1 || this.consecutiveWatchFailures % 2 === 0) {
-          this.addLog("warn", `Spade watch failed for ${login}: ${errDetail}`);
+          this.addLog("warn", `Stream watch failed for ${login}: ${stream.detail}`);
         }
         await this.syncDropProgress();
         if (!this.watchingMatches(login)) return;
@@ -1834,7 +1840,7 @@ export class MinerWorker {
         // Don't try to claim early - wait for Twitch to send drop-claim websocket message
         // This prevents false positives and respects Twitch's official completion signal
         const inGrace = Date.now() < this.watchGraceUntil;
-        if (spade.ok && inGrace) {
+        if (inGrace) {
           this.emit();
           return;
         }
@@ -1849,7 +1855,7 @@ export class MinerWorker {
                 : "";
           this.addLog(
             "warn",
-            `No Twitch progress yet (${newMinutes}/${req || "?"} min) [spade=${spade.status}]${gameHint}`
+            `No Twitch progress yet (${newMinutes}/${req || "?"} min) [${stream.detail}]${gameHint}`
           );
         }
 
