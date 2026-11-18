@@ -56,7 +56,9 @@ export function AuthShell({
         className="pointer-events-none fixed -left-32 bottom-0 h-[22rem] w-[22rem] rounded-full bg-brand-2/15 blur-[120px]"
       />
 
-      <div className="relative mx-auto flex min-h-full w-full max-w-6xl flex-col justify-center gap-10 px-5 py-10 lg:flex-row lg:items-center lg:gap-16 lg:px-8">
+      {/* Top-aligned on phones: a centered form jumps when the keyboard resizes
+          the viewport, and Android then drops focus and closes the keyboard. */}
+      <div className="relative mx-auto flex min-h-full w-full max-w-6xl flex-col justify-start gap-10 px-5 pb-10 pt-[max(2.5rem,env(safe-area-inset-top))] sm:justify-center sm:py-10 lg:flex-row lg:items-center lg:gap-16 lg:px-8">
         <motion.div
           initial={{ opacity: 0, y: 12 }}
           animate={{ opacity: 1, y: 0 }}
