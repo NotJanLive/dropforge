@@ -10,6 +10,7 @@ import authRoutes from "./routes/auth.js";
 import twitchRoutes from "./routes/twitch.js";
 import { initUiWebSocket } from "./ws/hub.js";
 import { minerManager } from "./miner/manager.js";
+import { rewardDirectory } from "./miner/rewards.js";
 
 import { validateEnvironment } from "./config/env.js";
 
@@ -63,6 +64,7 @@ async function main() {
 
   server.listen(PORT, async () => {
     console.log(`Dropforge running on http://localhost:${PORT}`);
+    rewardDirectory.start();
     await minerManager.startAllEligibleUsers();
   });
 }

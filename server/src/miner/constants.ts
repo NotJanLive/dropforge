@@ -271,6 +271,52 @@ export interface MinerStatus {
   miningCampaignOptions: MiningCampaignOption[];
   /** Number of drops that could not be claimed (e.g. account not linked). */
   unclaimedDrops: number;
+  /** Rewards (reward campaigns, creator badges) the user queued, in mining order. */
+  rewardQueue: RewardQueueView[];
+  /** Pinned reward — mined before game drops until earned. */
+  pinnedRewardId: string | null;
+  /** Reward being watched right now, if any. */
+  rewardMining: RewardQueueView | null;
+}
+
+/** Snapshot of one queued reward group (persisted per user). */
+export interface RewardQueueEntry {
+  /** `${campaignId}:${rewardGroupId}` */
+  id: string;
+  /** channel = creator badge (one channel); category = reward campaign (any channel in the categories). */
+  kind: "channel" | "category";
+  campaignId: string;
+  rewardGroupId: string;
+  campaignName: string;
+  groupName: string;
+  rewardName: string;
+  rewardImageUrl: string;
+  /** BADGE, EMOTE, DIRECT_ENTITLEMENT, CHEST, … */
+  rewardTypes: string[];
+  channelId: string;
+  channelLogin: string;
+  channelDisplayName: string;
+  channelImageUrl: string;
+  requiredMinutes: number;
+  categoryIds: string[];
+  categoryNames: string[];
+  endsAt: string;
+  /** Repeatable groups: how often it can be earned. */
+  repeatTimes: number | null;
+}
+
+export type RewardQueueState = "mining" | "waiting" | "offline" | "paused" | "claimable";
+
+export interface RewardQueueView extends RewardQueueEntry {
+  currentMinutes: number;
+  grantCount: number;
+  state: RewardQueueState;
+  /** When a paused (cooldown / next repeat) reward is tried again. */
+  resumeAt: string | null;
+  live: boolean;
+  pinned: boolean;
+  /** Channel watched for it right now (category rewards pick one themselves). */
+  watchingChannel: string | null;
 }
 
 export function topicStr(category: "User" | "Channel", name: string, id: string | number): string {

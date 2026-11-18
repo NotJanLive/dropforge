@@ -17,7 +17,17 @@ import {
   INVENTORY_MAINTENANCE_MS,
   IDLE_INVENTORY_REFRESH_MS,
   MAX_MINER_LOGS,
+  type RewardQueueEntry,
+  type RewardQueueState,
+  type RewardQueueView,
 } from "./constants.js";
+import {
+  rewardDirectory,
+  claimReward,
+  fetchRewardProgress,
+  findCategoryChannel,
+  type RewardProgress,
+} from "./rewards.js";
 import { PubSubPool, userTopics, channelTopics } from "./pubsub.js";
 import {
   fetchInventory,
@@ -51,6 +61,30 @@ export interface MinerSettings {
   excludeGames: string[];
   manualChannelLogin: string | null;
   activeCampaignId: string | null;
+  rewardQueue: RewardQueueEntry[];
+  pinnedRewardId: string | null;
+}
+
+/** Progress checks (~1 min each) without a credited minute before moving on. */
+const REWARD_STALL_TICKS = 15;
+/** How long a stalled or wrong-category reward is skipped. */
+const REWARD_COOLDOWN_MS = 30 * 60 * 1000;
+/** Progress refresh for queued rewards that are not being watched. */
+const REWARD_QUEUE_REFRESH_MS = 5 * 60 * 1000;
+const REWARD_CLAIM_RETRY_MS = 5 * 60 * 1000;
+
+interface ActiveReward {
+  entry: RewardQueueEntry;
+  /** Pinned: mined before game drops. Otherwise only while game mining is idle. */
+  preempt: boolean;
+  /** Channel watched for it: fixed for creator badges, picked for reward campaigns. */
+  channelId: string;
+  channelLogin: string;
+  broadcastId: string | null;
+  gameName: string;
+  lastMinutes: number;
+  stallTicks: number;
+  watchFailures: number;
 }
 
 type StatusCallback = (userId: number, status: MinerStatus) => void;
@@ -113,6 +147,13 @@ export class MinerWorker {
   /** Campaign Twitch never lists in AvailableDrops — skip re-probing it. */
   private unlistedCampaignId: string | null = null;
   private claimedDropIds: Set<string>;
+  private reward: ActiveReward | null = null;
+  private rewardSwitching = false;
+  private rewardProgress = new Map<string, RewardProgress>();
+  private rewardCooldownUntil = new Map<string, number>();
+  private rewardClaimAttemptAt = new Map<string, number>();
+  private lastRewardQueueRefresh = 0;
+  private rewardProgressErrorAt = 0;
 
   constructor(
     private userId: number,
@@ -407,6 +448,10 @@ export class MinerWorker {
   }
 
   getStatus(): MinerStatus {
+    const rewardQueue = this.rewardViews();
+    const rewardMining = this.reward
+      ? rewardQueue.find((v) => v.id === this.reward!.entry.id) ?? null
+      : null;
     const focused = this.resolveFocusedCampaign();
     const activeMining = computeActiveMining(
       this.allCampaigns,
@@ -422,12 +467,14 @@ export class MinerWorker {
       }
     }
     return {
-      state: this.state,
-      message: this.message,
-      watchingChannel: this.watching?.login ?? null,
-      watchingGame: this.watching?.gameName ?? null,
-      currentDrop: this.currentDrop,
-      activeMining,
+      state: rewardMining ? "WATCHING" : this.state,
+      message: rewardMining
+        ? `Watching ${rewardMining.watchingChannel} for "${rewardMining.rewardName}"`
+        : this.message,
+      watchingChannel: rewardMining ? rewardMining.watchingChannel : this.watching?.login ?? null,
+      watchingGame: rewardMining ? this.reward?.gameName || null : this.watching?.gameName ?? null,
+      currentDrop: rewardMining ? null : this.currentDrop,
+      activeMining: rewardMining ? null : activeMining,
       campaigns: this.allCampaigns,
       // Candidate channels are useful only while the miner is actively
       // searching or watching. Do not show a previous campaign's list while
@@ -448,6 +495,9 @@ export class MinerWorker {
         gameImageUrl: c.gameImageUrl,
       })),
       unclaimedDrops,
+      rewardQueue,
+      pinnedRewardId: this.settings.pinnedRewardId,
+      rewardMining,
     };
   }
 
@@ -455,6 +505,7 @@ export class MinerWorker {
     if (this.running) return;
     this.running = true;
     this.addLog("info", "Miner started");
+    rewardDirectory.track(this.settings.rewardQueue.map((e) => e.channelId));
     this.setupPubSub();
     this.loopPromise = this.runLoop();
     this.startWatchLoop();
@@ -464,6 +515,7 @@ export class MinerWorker {
 
   async stop() {
     this.running = false;
+    this.reward = null;
     if (this.watchTimer) clearInterval(this.watchTimer);
     this.pubsub?.stop();
     this.pubsub = null;
@@ -783,6 +835,15 @@ export class MinerWorker {
   }
 
   private async applyChannelSwitch(login: string, userInitiated = false) {
+    if (this.reward?.preempt) {
+      // A pinned reward owns the watch slot; only an explicit switch overrides it.
+      if (!userInitiated) return;
+      this.addLog("info", `Unpinned "${this.reward.entry.rewardName}" — switching to ${login}`);
+      this.settings.pinnedRewardId = null;
+      this.onSettingsPersist({ pinnedRewardId: null });
+      this.stopReward();
+    }
+
     if (
       !userInitiated &&
       sameLogin(this.watching?.login, login) &&
@@ -843,6 +904,9 @@ export class MinerWorker {
         this.broadcastId = info.broadcastId;
         this.setWatchingState(login);
         this.subscribeChannel(ch);
+        if (this.reward) {
+          this.stopReward(`Game drops available on ${login} — pausing "${this.reward.entry.rewardName}"`);
+        }
 
 
         await this.syncDropProgress();
@@ -925,6 +989,8 @@ export class MinerWorker {
 
     await this.claimWatchCompletedDrops();
     await this.maintainWatching();
+    await this.refreshQueuedRewardProgress();
+    await this.maintainReward();
   }
 
   /** TDM maintenance_task — campaign/drop start/end within the next hour, or hourly reload. */
@@ -1258,6 +1324,12 @@ export class MinerWorker {
 
   private async maintainWatching() {
     if (this.switching) return;
+    if (this.reward?.preempt) {
+      if (this.watching) {
+        this.clearWatchSession(`Pinned "${this.reward.entry.rewardName}" — pausing game drops`);
+      }
+      return;
+    }
 
     const focusedCampaigns = this.getFocusedCampaigns();
     const manual = this.settings.manualChannelLogin;
@@ -1384,6 +1456,8 @@ export class MinerWorker {
       tick = (tick + 1) % PROGRESS_CHECK_TICKS;
       if (tick === 0) {
         void this.performWatch();
+      } else if (this.reward?.broadcastId) {
+        void sendWatchStream(this.auth, this.reward.channelLogin);
       } else if (this.watching && this.broadcastId) {
         void sendWatchStream(this.auth, this.watching.login);
       }
@@ -1685,6 +1759,11 @@ export class MinerWorker {
   private async performWatchInternal() {
     if (!this.running) return;
 
+    if (this.reward) {
+      await this.rewardWatchTick();
+      return;
+    }
+
     if (this.miningCampaigns.length === 0) {
       if (this.watching) {
         this.clearWatchSession("No eligible campaigns — stopping watch");
@@ -1898,6 +1977,434 @@ export class MinerWorker {
       await this.syncDropProgress();
       if (!this.watchingMatches(login)) return;
       this.emit();
+    }
+  }
+
+  // ── Rewards: reward campaigns and creator badges ────────────────────────
+  //
+  // Queued rewards are mined only while the game miner has no channel to
+  // watch. A pinned reward takes the watch slot from game drops until it is
+  // earned, ends, or cannot be watched right now.
+
+  /** Reward queue or pin changed from the UI. */
+  async applyRewardQueue() {
+    if (!this.running) return;
+    const queue = this.settings.rewardQueue;
+    rewardDirectory.track(queue.map((e) => e.channelId));
+
+    if (this.reward) {
+      const current = queue.find((e) => e.id === this.reward!.entry.id);
+      if (!current) {
+        this.stopReward(`Removed "${this.reward.entry.rewardName}" from the reward queue`);
+      } else {
+        this.reward.entry = current;
+        this.reward.preempt = this.settings.pinnedRewardId === current.id;
+      }
+    }
+    // A user change is a fresh start for everything still queued.
+    for (const id of [...this.rewardCooldownUntil.keys()]) {
+      if (!queue.some((e) => e.id === id)) this.rewardCooldownUntil.delete(id);
+    }
+
+    const channelIds = [...new Set(queue.filter((e) => e.kind === "channel").map((e) => e.channelId))];
+    if (channelIds.length > 0) await rewardDirectory.refreshChannels(channelIds);
+    await this.refreshQueuedRewardProgress(true);
+
+    const pinned = queue.find((e) => e.id === this.settings.pinnedRewardId);
+    if (pinned && this.reward?.entry.id !== pinned.id) {
+      this.addLog("info", `Pinned "${pinned.rewardName}" — mining it before game drops`);
+    }
+
+    await this.maintainWatching();
+    await this.maintainReward();
+    this.emit();
+  }
+
+  private rewardViews(): RewardQueueView[] {
+    const now = Date.now();
+    return this.settings.rewardQueue.map((e) => {
+      const p = this.rewardProgress.get(e.id);
+      const mining = this.reward?.entry.id === e.id;
+      const live =
+        mining || (e.kind === "channel" ? rewardDirectory.isLive(e.channelId) === true : true);
+      const cooldown = this.rewardCooldownUntil.get(e.id) ?? 0;
+      let state: RewardQueueState;
+      if (mining) state = "mining";
+      else if (p?.status === "CLAIMABLE") state = "claimable";
+      else if (cooldown > now) state = "paused";
+      else state = live ? "waiting" : "offline";
+      return {
+        ...e,
+        requiredMinutes: p?.requiredMinutes || e.requiredMinutes,
+        currentMinutes: Math.max(0, p?.currentMinutes ?? 0),
+        grantCount: p?.grantCount ?? 0,
+        state,
+        resumeAt: cooldown > now ? new Date(cooldown).toISOString() : null,
+        live,
+        pinned: this.settings.pinnedRewardId === e.id,
+        watchingChannel: mining
+          ? this.reward!.channelLogin
+          : e.kind === "channel"
+            ? e.channelLogin
+            : null,
+      };
+    });
+  }
+
+  /** Earned for good: claimed, and no repeats left. */
+  private rewardDone(e: RewardQueueEntry): boolean {
+    const p = this.rewardProgress.get(e.id);
+    if (!p) return false;
+    if (e.repeatTimes) return p.grantCount >= e.repeatTimes;
+    return p.status === "CLAIMED" || p.grantCount > 0;
+  }
+
+  private rewardEligible(e: RewardQueueEntry, now = Date.now()): boolean {
+    if (e.endsAt && Date.parse(e.endsAt) <= now) return false;
+    if ((this.rewardCooldownUntil.get(e.id) ?? 0) > now) return false;
+    if (this.rewardDone(e)) return false;
+    if (this.reward?.entry.id === e.id) return true;
+    if (e.kind === "channel") return Boolean(e.channelLogin) && rewardDirectory.isLive(e.channelId) === true;
+    return e.categoryIds.length > 0;
+  }
+
+  private pickRewardTarget(): { entry: RewardQueueEntry; preempt: boolean } | null {
+    const queue = this.settings.rewardQueue;
+    const pinned = queue.find((e) => e.id === this.settings.pinnedRewardId);
+    if (pinned && this.rewardEligible(pinned)) return { entry: pinned, preempt: true };
+
+    // Game drops come first; a queued reward only fills an idle watch slot.
+    if (this.watching) return null;
+
+    if (this.reward && this.reward.entry.id !== pinned?.id && this.rewardEligible(this.reward.entry)) {
+      return { entry: this.reward.entry, preempt: false };
+    }
+    for (const e of queue) {
+      if (e.id !== pinned?.id && this.rewardEligible(e)) return { entry: e, preempt: false };
+    }
+    return null;
+  }
+
+  private async maintainReward() {
+    if (!this.running || this.rewardSwitching) return;
+    this.pruneRewardQueue();
+    // Try a few candidates per round so one unwatchable reward does not block the rest.
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const target = this.pickRewardTarget();
+      if (!target) {
+        if (this.reward) this.stopReward();
+        return;
+      }
+      if (this.reward?.entry.id === target.entry.id) {
+        this.reward.preempt = target.preempt;
+        return;
+      }
+      if (await this.startReward(target.entry, target.preempt)) return;
+    }
+  }
+
+  private rewardCategoryOk(entry: RewardQueueEntry, gameId: string): boolean {
+    return entry.categoryIds.length === 0 || entry.categoryIds.includes(gameId);
+  }
+
+  private coolDownReward(entry: RewardQueueEntry, ms: number) {
+    this.rewardCooldownUntil.set(entry.id, Date.now() + ms);
+  }
+
+  /** Start watching for a reward. Returns false when it cannot be watched now. */
+  private async startReward(entry: RewardQueueEntry, preempt: boolean): Promise<boolean> {
+    this.rewardSwitching = true;
+    try {
+      let channelId = entry.channelId;
+      let login = entry.channelLogin;
+      if (entry.kind === "category") {
+        const found = await findCategoryChannel(entry.categoryIds);
+        if (!found) {
+          this.coolDownReward(entry, 10 * 60 * 1000);
+          this.addLog("info", `No live channel in ${entry.categoryNames.join(" / ")} for "${entry.rewardName}" — retrying in 10 min`);
+          return false;
+        }
+        channelId = found.id;
+        login = found.login;
+      }
+
+      const info = await fetchStreamInfo(this.auth, login);
+      if (!this.running) return true;
+      if (!info.online || !info.broadcastId) {
+        if (entry.kind === "channel") rewardDirectory.setLive(entry.channelId, false);
+        else this.coolDownReward(entry, 5 * 60 * 1000);
+        return false;
+      }
+      if (!this.rewardCategoryOk(entry, info.gameId)) {
+        this.coolDownReward(entry, entry.kind === "channel" ? REWARD_COOLDOWN_MS : 5 * 60 * 1000);
+        this.addLog(
+          "warn",
+          `${login} streams "${info.gameName || "unknown"}" — "${entry.rewardName}" needs ${entry.categoryNames.join(" or ")}`
+        );
+        return false;
+      }
+
+      if (this.reward) this.stopReward();
+      if (this.watching) {
+        this.clearWatchSession(`Pinned "${entry.rewardName}" — pausing game drops`);
+      }
+
+      const progress = this.rewardProgress.get(entry.id);
+      this.reward = {
+        entry,
+        preempt,
+        channelId,
+        channelLogin: login,
+        broadcastId: info.broadcastId,
+        gameName: info.gameName,
+        lastMinutes: progress?.currentMinutes ?? -1,
+        stallTicks: 0,
+        watchFailures: 0,
+      };
+      this.lastWatchAt = new Date().toISOString();
+      this.addLog(
+        "success",
+        `Now watching ${login} for "${entry.rewardName}" (${progress?.currentMinutes ?? 0}/${entry.requiredMinutes} min)${preempt ? " — pinned" : ""}`
+      );
+      this.emit();
+      void this.performWatch();
+      return true;
+    } catch (err) {
+      this.coolDownReward(entry, 5 * 60 * 1000);
+      this.addLog("warn", `Reward switch failed: ${err instanceof Error ? err.message : "unknown error"}`);
+      return false;
+    } finally {
+      this.rewardSwitching = false;
+    }
+  }
+
+  private stopReward(message?: string) {
+    if (!this.reward) return;
+    if (message) this.addLog("info", message);
+    this.reward = null;
+    this.emit();
+  }
+
+  /** One minute of reward watching: keep the stream alive, then check progress. */
+  private async rewardWatchTick() {
+    const r = this.reward;
+    if (!r) return;
+    const { entry } = r;
+    const login = r.channelLogin;
+
+    try {
+      const info = await fetchStreamInfo(this.auth, login);
+      if (this.reward !== r) return;
+      if (!info.online || !info.broadcastId) {
+        if (entry.kind === "channel") rewardDirectory.setLive(entry.channelId, false);
+        // Category rewards pick another channel on the next round.
+        this.stopReward(`${login} went offline — pausing "${entry.rewardName}"`);
+        return;
+      }
+      r.broadcastId = info.broadcastId;
+      r.gameName = info.gameName;
+      if (!this.rewardCategoryOk(entry, info.gameId)) {
+        if (entry.kind === "channel") this.coolDownReward(entry, REWARD_COOLDOWN_MS);
+        this.stopReward(
+          `${login} switched to "${info.gameName || "unknown"}" — "${entry.rewardName}" needs ${entry.categoryNames.join(" or ")}`
+        );
+        return;
+      }
+
+      const stream = await sendWatchStream(this.auth, login);
+      if (this.reward !== r) return;
+      if (!stream.ok) {
+        r.watchFailures++;
+        if (r.watchFailures === 1 || r.watchFailures % 3 === 0) {
+          this.addLog("warn", `Stream watch failed for ${login}: ${stream.detail}`);
+        }
+      } else {
+        r.watchFailures = 0;
+      }
+
+      await this.fetchRewardProgressFor(entry);
+      if (this.reward !== r) return;
+      const p = this.rewardProgress.get(entry.id);
+
+      if (p?.status === "CLAIMABLE") {
+        await this.claimQueuedReward(entry);
+        return;
+      }
+      if (this.settleReward(entry)) return;
+
+      const minutes = p?.currentMinutes ?? -1;
+      if (minutes > r.lastMinutes && r.lastMinutes >= 0) {
+        this.addLog("success", `Reward minute credited: ${entry.rewardName} (${minutes}/${entry.requiredMinutes})`);
+        r.stallTicks = 0;
+        this.lastWatchAt = new Date().toISOString();
+      } else if (r.lastMinutes < 0 && minutes >= 0) {
+        this.lastWatchAt = new Date().toISOString();
+      } else {
+        r.stallTicks++;
+        if (r.stallTicks === 5 || r.stallTicks === 10) {
+          this.addLog(
+            "warn",
+            `No reward progress yet on ${login} (${Math.max(minutes, 0)}/${entry.requiredMinutes} min) [${stream.detail}]`
+          );
+        }
+        if (r.stallTicks >= REWARD_STALL_TICKS) {
+          this.coolDownReward(entry, REWARD_COOLDOWN_MS);
+          this.stopReward(`No progress for "${entry.rewardName}" on ${login} for ~15 min — skipping it for 30 min`);
+          return;
+        }
+      }
+      if (minutes >= 0) r.lastMinutes = Math.max(r.lastMinutes, minutes);
+      this.emit();
+    } catch (err) {
+      if (this.reward !== r) return;
+      if (err instanceof Error && err.message === "UNAUTHORIZED") {
+        this.stopReward();
+        this.state = "ERROR";
+        this.message = "Twitch session expired";
+        this.addLog("error", "Twitch session expired — re-link required");
+        this.emit();
+        return;
+      }
+      this.addLog("warn", `Reward watch failed: ${err instanceof Error ? err.message : "unknown error"}`);
+    }
+  }
+
+  /**
+   * Handle a reward that cannot progress right now: earned for good → drop
+   * it; repeatable and waiting for its next window → pause until then.
+   * Returns true if the reward stopped being mined.
+   */
+  private settleReward(entry: RewardQueueEntry): boolean {
+    if (this.rewardDone(entry)) {
+      this.finishReward(entry, "already earned");
+      return true;
+    }
+    const p = this.rewardProgress.get(entry.id);
+    const next = p?.nextEligibleAt ? Date.parse(p.nextEligibleAt) : NaN;
+    if (Number.isFinite(next) && next > Date.now() && p?.status !== "CLAIMABLE") {
+      if ((this.rewardCooldownUntil.get(entry.id) ?? 0) < next) {
+        this.rewardCooldownUntil.set(entry.id, next);
+        this.addLog(
+          "info",
+          `"${entry.rewardName}" earned ${p?.grantCount ?? 0}${entry.repeatTimes ? `/${entry.repeatTimes}` : ""} — next one from ${new Date(next).toLocaleString()}`
+        );
+      }
+      if (this.reward?.entry.id === entry.id) this.stopReward();
+      return true;
+    }
+    return false;
+  }
+
+  /** Load progress for one queued reward (and others sharing its query). */
+  private async fetchRewardProgressFor(entry: RewardQueueEntry): Promise<boolean> {
+    try {
+      const progress = await fetchRewardProgress(this.auth, entry);
+      for (const e of this.settings.rewardQueue) {
+        const same =
+          e.kind === entry.kind &&
+          (e.kind === "channel" ? e.channelId === entry.channelId : e.campaignId === entry.campaignId);
+        if (!same) continue;
+        const p = progress.get(e.rewardGroupId);
+        if (p) this.rewardProgress.set(e.id, p);
+      }
+      return true;
+    } catch (err) {
+      if (err instanceof Error && err.message === "UNAUTHORIZED") throw err;
+      const now = Date.now();
+      if (now - this.rewardProgressErrorAt > 10 * 60 * 1000) {
+        this.rewardProgressErrorAt = now;
+        this.addLog(
+          "warn",
+          `Could not load reward progress: ${err instanceof Error ? err.message : "unknown error"}`
+        );
+      }
+      return false;
+    }
+  }
+
+  /** Periodic progress check for queued rewards; claims any that are ready. */
+  private async refreshQueuedRewardProgress(force = false) {
+    const queue = this.settings.rewardQueue;
+    if (queue.length === 0) return;
+    const now = Date.now();
+    if (!force && now - this.lastRewardQueueRefresh < REWARD_QUEUE_REFRESH_MS) return;
+    this.lastRewardQueueRefresh = now;
+
+    const seen = new Set<string>();
+    for (const e of queue) {
+      const key = e.kind === "channel" ? `c:${e.channelId}` : `k:${e.campaignId}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      if (!force && this.reward?.entry.id === e.id) continue;
+      try {
+        await this.fetchRewardProgressFor(e);
+      } catch {
+        return;
+      }
+    }
+
+    for (const e of [...this.settings.rewardQueue]) {
+      if (this.rewardProgress.get(e.id)?.status === "CLAIMABLE") await this.claimQueuedReward(e);
+      else this.settleReward(e);
+    }
+  }
+
+  private async claimQueuedReward(entry: RewardQueueEntry) {
+    const now = Date.now();
+    if (now - (this.rewardClaimAttemptAt.get(entry.id) ?? 0) < REWARD_CLAIM_RETRY_MS) return;
+    this.rewardClaimAttemptAt.set(entry.id, now);
+    const label = entry.kind === "channel" ? entry.channelDisplayName || entry.channelLogin : entry.campaignName;
+    try {
+      this.addLog("info", `Claiming reward: ${entry.rewardName} (${label})`);
+      const before = this.rewardProgress.get(entry.id)?.grantCount ?? 0;
+      const status = await claimReward(this.auth, entry.campaignId, entry.rewardGroupId);
+      await this.fetchRewardProgressFor(entry);
+      const after = this.rewardProgress.get(entry.id);
+      const claimed =
+        status === "ELIGIBLE_FOR_ALL" ||
+        status === "DROP_INSTANCE_ALREADY_CLAIMED" ||
+        (after !== undefined && after.status !== "CLAIMABLE" && after.grantCount > before);
+      if (!claimed) {
+        this.addLog("warn", `Reward claim not confirmed (${status || "no status"}) — retrying in 5 min`);
+        return;
+      }
+      this.addLog("success", `Claimed reward: ${entry.rewardName} (${label})`);
+      this.rewardClaimAttemptAt.delete(entry.id);
+      if (after && after.grantCount <= before) after.grantCount = before + 1;
+      if (!entry.repeatTimes) {
+        this.finishReward(entry);
+        return;
+      }
+      if (!this.settleReward(entry) && this.reward?.entry.id === entry.id) {
+        // Repeatable and the next round is open right away — keep watching.
+        this.reward.lastMinutes = -1;
+        this.reward.stallTicks = 0;
+      }
+    } catch (err) {
+      if (err instanceof Error && err.message === "UNAUTHORIZED") throw err;
+      this.addLog("warn", `Reward claim failed: ${err instanceof Error ? err.message : "unknown error"}`);
+    }
+  }
+
+  /** Reward earned (or gone) — drop it from the queue and free the watch slot. */
+  private finishReward(entry: RewardQueueEntry, note?: string) {
+    const queue = this.settings.rewardQueue.filter((e) => e.id !== entry.id);
+    const pinnedRewardId = this.settings.pinnedRewardId === entry.id ? null : this.settings.pinnedRewardId;
+    this.settings.rewardQueue = queue;
+    this.settings.pinnedRewardId = pinnedRewardId;
+    this.onSettingsPersist({ rewardQueue: queue, pinnedRewardId });
+    this.rewardProgress.delete(entry.id);
+    this.rewardCooldownUntil.delete(entry.id);
+    this.rewardClaimAttemptAt.delete(entry.id);
+    if (note) this.addLog("info", `"${entry.rewardName}" ${note} — removed from queue`);
+    if (this.reward?.entry.id === entry.id) this.stopReward();
+    this.emit();
+  }
+
+  private pruneRewardQueue() {
+    const now = Date.now();
+    for (const e of [...this.settings.rewardQueue]) {
+      if (e.endsAt && Date.parse(e.endsAt) <= now) this.finishReward(e, "ended");
     }
   }
 }

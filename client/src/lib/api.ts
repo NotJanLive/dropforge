@@ -113,6 +113,92 @@ export interface MinerStatus {
   focusedGameName?: string | null;
   miningCampaignOptions?: MiningCampaignOption[];
   unclaimedDrops?: number;
+  rewardQueue?: RewardQueueView[];
+  pinnedRewardId?: string | null;
+  rewardMining?: RewardQueueView | null;
+}
+
+export type RewardKind = "channel" | "category";
+
+export interface RewardItem {
+  name: string;
+  /** BADGE, EMOTE, DIRECT_ENTITLEMENT, POOL, … */
+  type: string;
+  imageUrl: string;
+  pool: Array<{ name: string; type: string; imageUrl: string }>;
+}
+
+export interface RewardGroupInfo {
+  id: string;
+  groupId: string;
+  name: string;
+  requirementType: string;
+  minutesWatched: number;
+  subs: number;
+  repeatTimes: number | null;
+  resetSeconds: number | null;
+  rewards: RewardItem[];
+  mineable: boolean;
+}
+
+/** Reward campaign (global, category based) or creator badge campaign (one channel). */
+export interface RewardCampaign {
+  id: string;
+  kind: RewardKind;
+  name: string;
+  brandName: string;
+  imageUrl: string;
+  detailsUrl: string;
+  startsAt: string;
+  endsAt: string;
+  categoryIds: string[];
+  categoryNames: string[];
+  channel: {
+    id: string;
+    login: string;
+    displayName: string;
+    imageUrl: string;
+    live: boolean;
+    viewers: number;
+    gameName: string;
+  } | null;
+  groups: RewardGroupInfo[];
+}
+
+export type RewardQueueState = "mining" | "waiting" | "offline" | "paused" | "claimable";
+
+export interface RewardQueueView {
+  id: string;
+  kind: RewardKind;
+  campaignId: string;
+  rewardGroupId: string;
+  campaignName: string;
+  groupName: string;
+  rewardName: string;
+  rewardImageUrl: string;
+  rewardTypes: string[];
+  channelId: string;
+  channelLogin: string;
+  channelDisplayName: string;
+  channelImageUrl: string;
+  requiredMinutes: number;
+  currentMinutes: number;
+  grantCount: number;
+  repeatTimes: number | null;
+  categoryNames: string[];
+  endsAt: string;
+  state: RewardQueueState;
+  resumeAt: string | null;
+  live: boolean;
+  pinned: boolean;
+  watchingChannel: string | null;
+}
+
+export interface RewardScanInfo {
+  lastScanAt: string | null;
+  scanning: boolean;
+  scannedStreams: number;
+  error: string | null;
 }
 
 export interface MiningCampaignOption {
@@ -277,6 +363,18 @@ export const api = {
     request<{ ok: boolean; status: MinerStatus | null }>("/api/twitch/miner/select-campaign", {
       method: "POST",
       body: JSON.stringify({ campaignId }),
+    }),
+  rewards: () =>
+    request<{ campaigns: RewardCampaign[]; scan: RewardScanInfo }>("/api/twitch/rewards"),
+  lookupRewards: (login: string) =>
+    request<{ campaigns: RewardCampaign[] }>("/api/twitch/rewards/lookup", {
+      method: "POST",
+      body: JSON.stringify({ login }),
+    }),
+  updateRewardQueue: (queue: string[], pinnedId: string | null) =>
+    request<{ ok: boolean; status: MinerStatus | null }>("/api/twitch/miner/rewards", {
+      method: "PUT",
+      body: JSON.stringify({ queue, pinnedId }),
     }),
   switchChannel: (channelLogin: string) =>
     request<{ ok: boolean; status: MinerStatus | null }>("/api/twitch/miner/switch", {

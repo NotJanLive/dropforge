@@ -2,7 +2,9 @@ import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   Activity,
+  Award,
   CheckCircle2,
+  Pin,
   Circle,
   Clock3,
   Gift,
@@ -20,7 +22,15 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { Select } from "@/components/ui/select";
-import { api, type ActiveMiningView, type CampaignDropView, type ChannelInfo, type MinerStatus } from "@/lib/api";
+import {
+  api,
+  type ActiveMiningView,
+  type RewardQueueView,
+  type CampaignDropView,
+  type ChannelInfo,
+  type MinerStatus,
+} from "@/lib/api";
+import { formatEndsIn, formatWatchTime } from "@/lib/rewards";
 import { useAuth } from "@/context/AuthContext";
 import { useMinerWebSocket } from "@/hooks/useMinerWebSocket";
 import {
@@ -277,6 +287,12 @@ export function OverviewPage() {
                     title="No campaign data"
                     description="Connect your Twitch account to load drop campaigns and start mining."
                   />
+                ) : live?.rewardMining ? (
+                  <RewardMiningPanel
+                    reward={live.rewardMining}
+                    queued={(live.rewardQueue?.length ?? 1) - 1}
+                    onOpen={() => navigate("/dashboard/rewards")}
+                  />
                 ) : live?.state === "IDLE" ? (
                   <EmptyState
                     icon={Moon}
@@ -416,6 +432,56 @@ function MiningPanel({
         />
       </div>
     </>
+  );
+}
+
+function RewardMiningPanel({
+  reward,
+  queued,
+  onOpen,
+}: {
+  reward: RewardQueueView;
+  queued: number;
+  onOpen: () => void;
+}) {
+  const pct = reward.requiredMinutes > 0 ? (reward.currentMinutes / reward.requiredMinutes) * 100 : 0;
+  const remaining = Math.max(0, reward.requiredMinutes - reward.currentMinutes);
+  const source =
+    reward.kind === "channel"
+      ? `Creator badge · ${reward.channelDisplayName || reward.channelLogin}`
+      : `${reward.campaignName} · on ${reward.watchingChannel ?? "—"}`;
+  return (
+    <div className="space-y-3">
+      <ProgressBlock
+        eyebrow={`${reward.kind === "channel" ? "Creator badge" : "Reward campaign"}${reward.pinned ? " · pinned" : ""}`}
+        image={
+          <TwitchImage
+            src={reward.rewardImageUrl}
+            alt={reward.rewardName}
+            className="h-[4.5rem] w-[4.5rem] rounded-lg bg-white/[0.04] object-contain p-1.5 ring-1 ring-inset ring-white/10 lg:h-16 lg:w-16"
+            fallbackClassName="h-[4.5rem] w-[4.5rem] rounded-lg bg-white/[0.05] lg:h-16 lg:w-16"
+          />
+        }
+        title={reward.rewardName}
+        subtitle={`${source} · ${reward.currentMinutes}/${reward.requiredMinutes} min${reward.repeatTimes ? ` · earned ${reward.grantCount}/${reward.repeatTimes}` : ""}${reward.endsAt ? ` · ${formatEndsIn(reward.endsAt)}` : ""}`}
+        percent={pct}
+        meta={remaining > 0 ? `${formatWatchTime(remaining)} left` : "Ready to claim"}
+        countdown={null}
+        highlight
+      />
+      <div className="flex flex-wrap items-center justify-between gap-2 text-2xs text-muted-foreground">
+        <span className="flex items-center gap-1.5">
+          {reward.pinned ? <Pin className="h-3.5 w-3.5 text-primary" /> : <Award className="h-3.5 w-3.5" />}
+          {reward.pinned
+            ? "Pinned — game drops are paused until this reward is earned"
+            : "No game drop to mine right now — using the time for rewards"}
+          {queued > 0 && ` · ${queued} more queued`}
+        </span>
+        <Button size="xs" variant="ghost" onClick={onOpen}>
+          Manage rewards
+        </Button>
+      </div>
+    </div>
   );
 }
 

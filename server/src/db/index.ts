@@ -149,6 +149,16 @@ function migrateDb() {
   } catch {
     /* column already exists */
   }
+  try {
+    sqlite!.run(`ALTER TABLE user_miner_settings ADD COLUMN reward_queue TEXT NOT NULL DEFAULT '[]'`);
+  } catch {
+    /* column already exists */
+  }
+  try {
+    sqlite!.run(`ALTER TABLE user_miner_settings ADD COLUMN pinned_reward_id TEXT`);
+  } catch {
+    /* column already exists */
+  }
 }
 
 export function getSiteConfig() {

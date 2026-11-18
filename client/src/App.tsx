@@ -12,6 +12,7 @@ import { SettingsPage } from "@/pages/dashboard/SettingsPage";
 import { TwitchLinkPage } from "@/pages/dashboard/TwitchLinkPage";
 import { InventoryPage } from "@/pages/dashboard/InventoryPage";
 import { UsersPage } from "@/pages/dashboard/UsersPage";
+import { RewardsPage } from "@/pages/dashboard/RewardsPage";
 
 function CampaignsRedirect() {
   return <CampaignsPage />;
@@ -21,6 +22,12 @@ function ChannelsRedirect() {
   const { user } = useAuth();
   if (user?.role === "user") return <Navigate to="/dashboard" replace />;
   return <ChannelsPage />;
+}
+
+function RewardsRoute() {
+  const { user } = useAuth();
+  if (user?.role !== "user") return <Navigate to="/dashboard" replace />;
+  return <RewardsPage />;
 }
 
 function ProtectedDashboard({ children }: { children: React.ReactNode }) {
@@ -137,6 +144,14 @@ export default function App() {
         element={
           <ProtectedDashboard>
             <InventoryPage />
+          </ProtectedDashboard>
+        }
+      />
+      <Route
+        path="/dashboard/rewards"
+        element={
+          <ProtectedDashboard>
+            <RewardsRoute />
           </ProtectedDashboard>
         }
       />

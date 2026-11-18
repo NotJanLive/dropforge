@@ -3,6 +3,7 @@ import { Link, useLocation } from "react-router-dom";
 import { AnimatePresence, motion } from "framer-motion";
 import {
   ExternalLink,
+  Gift,
   Gauge,
   Github,
   LayoutDashboard,
@@ -41,6 +42,7 @@ const userNavItems: NavItem[] = [
   { to: "/dashboard", label: "Miner", icon: Gauge },
   { to: "/dashboard/inventory", label: "Inventory", icon: Package },
   { to: "/dashboard/campaigns", label: "Drop lists", short: "Drops", icon: ListChecks },
+  { to: "/dashboard/rewards", label: "Rewards", icon: Gift },
   { to: "/dashboard/settings", label: "Settings", icon: Settings2 },
 ];
 

@@ -11,7 +11,8 @@ import {
   unlinkTwitch,
 } from "../twitch/session.js";
 import { minerManager, parseJsonArray, createUnlinkedMinerStatus, loadMinerLogs } from "../miner/manager.js";
-import type { CampaignInfo } from "../miner/constants.js";
+import type { RewardQueueEntry, CampaignInfo } from "../miner/constants.js";
+import { rewardDirectory } from "../miner/rewards.js";
 
 const router = Router();
 
@@ -202,6 +203,45 @@ router.post("/miner/switch", requireUser, async (req, res) => {
     return;
   }
   await minerManager.switchChannel(user.id, channelLogin);
+  res.json({ ok: true, status: minerManager.getStatus(user.id) });
+});
+
+router.get("/rewards", requireUser, (_req, res) => {
+  res.json({ campaigns: rewardDirectory.list(), scan: rewardDirectory.info() });
+});
+
+router.post("/rewards/lookup", requireUser, async (req, res) => {
+  const { login } = req.body as { login?: string };
+  const name = String(login ?? "").trim().replace(/^@/, "");
+  if (!/^[a-zA-Z0-9_]{2,25}$/.test(name)) {
+    res.status(400).json({ error: "Enter a valid Twitch channel name" });
+    return;
+  }
+  try {
+    res.json({ campaigns: await rewardDirectory.lookup(name) });
+  } catch (err) {
+    res.status(400).json({ error: err instanceof Error ? err.message : "Lookup failed" });
+  }
+});
+
+router.put("/miner/rewards", requireUser, async (req, res) => {
+  const user = (req as typeof req & { currentUser: { id: number } }).currentUser;
+  const { queue, pinnedId } = req.body as { queue?: unknown; pinnedId?: unknown };
+  if (!Array.isArray(queue)) {
+    res.status(400).json({ error: "queue must be an array of reward ids" });
+    return;
+  }
+  const current = new Map(
+    minerManager.getRewardSettings(user.id).rewardQueue.map((e) => [e.id, e] as const)
+  );
+  const entries: RewardQueueEntry[] = [];
+  for (const raw of queue) {
+    const id = String(raw);
+    const entry = rewardDirectory.entry(id) ?? current.get(id);
+    if (entry) entries.push(entry);
+  }
+  const pinned = typeof pinnedId === "string" && pinnedId ? pinnedId : null;
+  await minerManager.updateRewardQueue(user.id, entries, pinned);
   res.json({ ok: true, status: minerManager.getStatus(user.id) });
 });
 

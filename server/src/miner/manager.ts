@@ -3,7 +3,7 @@ import { db } from "../db/index.js";
 import { twitchSessions, userMinerSettings, users } from "../db/schema.js";
 import { getTwitchSession } from "../twitch/session.js";
 import { MinerWorker, type MinerSettings } from "./worker.js";
-import type { MinerStatus, MinerLogEntry } from "./constants.js";
+import type { MinerStatus, MinerLogEntry, RewardQueueEntry } from "./constants.js";
 import { MAX_MINER_LOGS } from "./constants.js";
 
 type BroadcastFn = (userId: number, status: MinerStatus) => void;
@@ -12,6 +12,26 @@ export function parseJsonArray(value: string): string[] {
   try {
     const parsed = JSON.parse(value);
     return Array.isArray(parsed) ? parsed.map(String) : [];
+  } catch {
+    return [];
+  }
+}
+
+export function parseRewardQueue(value: string | null | undefined): RewardQueueEntry[] {
+  if (!value) return [];
+  try {
+    const parsed = JSON.parse(value);
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter(
+      (e): e is RewardQueueEntry =>
+        Boolean(e) &&
+        typeof e === "object" &&
+        typeof e.id === "string" &&
+        typeof e.campaignId === "string" &&
+        typeof e.rewardGroupId === "string" &&
+        typeof e.channelId === "string" &&
+        (e.kind === "channel" || e.kind === "category")
+    );
   } catch {
     return [];
   }
@@ -112,6 +132,8 @@ function loadSettings(userId: number): MinerSettings {
       excludeGames: [],
       manualChannelLogin: null,
       activeCampaignId: null,
+      rewardQueue: [],
+      pinnedRewardId: null,
     };
   }
   return {
@@ -120,6 +142,8 @@ function loadSettings(userId: number): MinerSettings {
     excludeGames: parseJsonArray(row.excludeGames),
     manualChannelLogin: row.manualChannelLogin,
     activeCampaignId: row.activeCampaignId ?? null,
+    rewardQueue: parseRewardQueue(row.rewardQueue),
+    pinnedRewardId: row.pinnedRewardId ?? null,
   };
 }
 
@@ -130,6 +154,8 @@ function mergeSettings(before: MinerSettings, partial: Partial<MinerSettings>): 
   if (partial.excludeGames !== undefined) merged.excludeGames = partial.excludeGames;
   if (partial.manualChannelLogin !== undefined) merged.manualChannelLogin = partial.manualChannelLogin;
   if (partial.activeCampaignId !== undefined) merged.activeCampaignId = partial.activeCampaignId;
+  if (partial.rewardQueue !== undefined) merged.rewardQueue = partial.rewardQueue;
+  if (partial.pinnedRewardId !== undefined) merged.pinnedRewardId = partial.pinnedRewardId;
   return merged;
 }
 
@@ -153,6 +179,9 @@ export function createUnlinkedMinerStatus(logs: MinerLogEntry[] = []): MinerStat
     focusedGameName: null,
     miningCampaignOptions: [],
     unclaimedDrops: 0,
+    rewardQueue: [],
+    pinnedRewardId: null,
+    rewardMining: null,
   };
 }
 
@@ -192,6 +221,8 @@ export class MinerManager {
           excludeGames: JSON.stringify(merged.excludeGames),
           manualChannelLogin: merged.manualChannelLogin,
           activeCampaignId: merged.activeCampaignId,
+          rewardQueue: JSON.stringify(merged.rewardQueue),
+          pinnedRewardId: merged.pinnedRewardId,
           updatedAt: now,
         })
         .where(eq(userMinerSettings.userId, userId))
@@ -205,6 +236,8 @@ export class MinerManager {
         selectedCampaigns: "[]",
         manualChannelLogin: merged.manualChannelLogin,
         activeCampaignId: merged.activeCampaignId,
+        rewardQueue: JSON.stringify(merged.rewardQueue),
+        pinnedRewardId: merged.pinnedRewardId,
         updatedAt: now,
       }).run();
     }
@@ -284,6 +317,8 @@ export class MinerManager {
       settings.excludeGames !== undefined ||
       settings.priorityMode !== undefined;
     const focusChanged = settings.activeCampaignId !== undefined;
+    const rewardsChanged =
+      settings.rewardQueue !== undefined || settings.pinnedRewardId !== undefined;
 
     if (existing) {
       db.update(userMinerSettings)
@@ -294,6 +329,8 @@ export class MinerManager {
           selectedCampaigns: "[]",
           manualChannelLogin: merged.manualChannelLogin,
           activeCampaignId: merged.activeCampaignId,
+          rewardQueue: JSON.stringify(merged.rewardQueue),
+          pinnedRewardId: merged.pinnedRewardId,
           updatedAt: now,
         })
         .where(eq(userMinerSettings.userId, userId))
@@ -307,6 +344,8 @@ export class MinerManager {
         selectedCampaigns: "[]",
         manualChannelLogin: merged.manualChannelLogin,
         activeCampaignId: merged.activeCampaignId,
+        rewardQueue: JSON.stringify(merged.rewardQueue),
+        pinnedRewardId: merged.pinnedRewardId,
         updatedAt: now,
       }).run();
     }
@@ -320,7 +359,12 @@ export class MinerManager {
         excludeGames: merged.excludeGames,
         manualChannelLogin: merged.manualChannelLogin,
         activeCampaignId: merged.activeCampaignId,
+        rewardQueue: merged.rewardQueue,
+        pinnedRewardId: merged.pinnedRewardId,
       });
+      if (rewardsChanged) {
+        await worker.applyRewardQueue();
+      }
       if (rulesChanged) {
         await worker.applyMiningRules();
       } else if (focusChanged) {
@@ -333,7 +377,25 @@ export class MinerManager {
     await this.updateSettings(userId, {
       activeCampaignId: campaignId,
       manualChannelLogin: null,
+      // Picking a game campaign is an explicit choice — it beats a pinned reward.
+      ...(campaignId ? { pinnedRewardId: null } : {}),
     });
+  }
+
+  getRewardSettings(userId: number) {
+    const s = loadSettings(userId);
+    return { rewardQueue: s.rewardQueue, pinnedRewardId: s.pinnedRewardId };
+  }
+
+  /**
+   * Replace the reward queue. `entries` must already be resolved snapshots;
+   * a pin is dropped if its reward is not queued.
+   */
+  async updateRewardQueue(userId: number, entries: RewardQueueEntry[], pinnedRewardId: string | null) {
+    const seen = new Set<string>();
+    const queue = entries.filter((e) => !seen.has(e.id) && seen.add(e.id));
+    const pinned = pinnedRewardId && queue.some((e) => e.id === pinnedRewardId) ? pinnedRewardId : null;
+    await this.updateSettings(userId, { rewardQueue: queue, pinnedRewardId: pinned });
   }
 
   async reload(userId: number) {
