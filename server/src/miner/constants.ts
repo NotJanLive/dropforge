@@ -296,7 +296,10 @@ export interface RewardHistoryEntry {
   channelLogin: string;
   /** 1-based count for repeatable rewards. */
   grantNumber: number | null;
+  /** When dropforge recorded it (claim time for its own claims). */
   claimedAt: string;
+  /** dropforge = claimed by the miner; twitch = found earned on Twitch. */
+  source?: "dropforge" | "twitch";
 }
 
 /** Snapshot of one queued reward group (persisted per user). */

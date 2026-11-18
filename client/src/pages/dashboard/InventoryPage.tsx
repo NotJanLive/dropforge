@@ -485,8 +485,14 @@ function MinedRewards({ history }: { history: RewardHistoryEntry[] }) {
                     ))}
                 </div>
                 <p className="text-[0.625rem] tabular-nums text-success">
-                  {new Date(h.claimedAt).toLocaleDateString([], { day: "2-digit", month: "short" })}{" "}
-                  {new Date(h.claimedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                  {h.source === "twitch" ? (
+                    "Earned on Twitch"
+                  ) : (
+                    <>
+                      {new Date(h.claimedAt).toLocaleDateString([], { day: "2-digit", month: "short" })}{" "}
+                      {new Date(h.claimedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                    </>
+                  )}
                 </p>
               </div>
             ))}

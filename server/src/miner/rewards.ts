@@ -674,6 +674,45 @@ export async function listCategoryChannels(categoryIds: string[], limit = 40): P
   return [...seen.values()].sort((a, b) => b.viewers - a.viewers).slice(0, limit);
 }
 
+/**
+ * The viewer's progress on many campaigns at once (aliased `dropsCampaign`
+ * queries, 15 per request). Campaigns Twitch returns nothing for are left out.
+ */
+export async function fetchCampaignsProgress(
+  auth: TwitchAuthSession,
+  campaignIds: string[]
+): Promise<Map<string, Map<string, RewardProgress>>> {
+  const out = new Map<string, Map<string, RewardProgress>>();
+  const fields = `id rewardGroups { id progressCriteria { requirements { minutesWatched } } ${SELF_FIELDS} }`;
+  let lastError: Error | null = null;
+  let anyOk = false;
+  for (const ids of chunk([...new Set(campaignIds)], 15)) {
+    const vars = ids.map((_, i) => `$id${i}: ID!`).join(", ");
+    const body = ids.map((_, i) => `c${i}: dropsCampaign(id: $id${i}) { ${fields} }`).join("\n");
+    const variables: Json = {};
+    ids.forEach((id, i) => (variables[`id${i}`] = id));
+    try {
+      const result = await authQuery(auth, `query DropforgeEarnedRewards(${vars}) { ${body} }`, variables);
+      const data = asRecord(result.data);
+      ids.forEach((id, i) => {
+        const c = asRecord(data[`c${i}`]);
+        if (c.id) {
+          anyOk = true;
+          out.set(id, parseProgress(asArray(c.rewardGroups)));
+        }
+      });
+      if (!result.data && asArray(result.errors).length > 0) {
+        lastError = new Error(String(asArray(result.errors)[0].message ?? "GQL error"));
+      }
+    } catch (err) {
+      if (err instanceof Error && err.message === "UNAUTHORIZED") throw err;
+      lastError = err instanceof Error ? err : new Error(String(err));
+    }
+  }
+  if (!anyOk && lastError) throw lastError;
+  return out;
+}
+
 /** Most-watched live channel streaming one of the categories. */
 export async function findCategoryChannel(
   categoryIds: string[],

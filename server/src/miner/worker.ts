@@ -25,6 +25,7 @@ import {
 import {
   rewardDirectory,
   claimReward,
+  fetchCampaignsProgress,
   fetchRewardProgress,
   findCategoryChannel,
   type RewardProgress,
@@ -68,6 +69,8 @@ export interface MinerSettings {
 }
 
 const MAX_REWARD_HISTORY = 300;
+/** How often earned rewards are synced from Twitch into the history. */
+const REWARD_HISTORY_SYNC_MS = 30 * 60 * 1000;
 /** How often a reward running on a fallback channel re-checks the user's pick. */
 const PREFERRED_CHANNEL_RECHECK_MS = 5 * 60 * 1000;
 
@@ -162,6 +165,8 @@ export class MinerWorker {
   private rewardClaimAttemptAt = new Map<string, number>();
   private lastRewardQueueRefresh = 0;
   private rewardProgressErrorAt = 0;
+  private lastRewardHistorySync = 0;
+  private rewardHistorySyncing = false;
 
   constructor(
     private userId: number,
@@ -1000,6 +1005,7 @@ export class MinerWorker {
     await this.maintainWatching();
     await this.refreshQueuedRewardProgress();
     await this.maintainReward();
+    await this.syncRewardHistory();
   }
 
   /** TDM maintenance_task — campaign/drop start/end within the next hour, or hourly reload. */
@@ -2407,7 +2413,9 @@ export class MinerWorker {
       const claimed =
         status === "ELIGIBLE_FOR_ALL" ||
         status === "DROP_INSTANCE_ALREADY_CLAIMED" ||
-        (after !== undefined && after.status !== "CLAIMABLE" && after.grantCount > before);
+        (after !== undefined &&
+          after.status !== "CLAIMABLE" &&
+          (after.status === "CLAIMED" || after.grantCount > before));
       if (!claimed) {
         this.addLog("warn", `Reward claim not confirmed (${status || "no status"}) — retrying in 5 min`);
         return;
@@ -2462,7 +2470,60 @@ export class MinerWorker {
     }
   }
 
-  private recordRewardHistory(entry: RewardQueueEntry, grantNumber: number) {
+  /**
+   * Bring the history in line with what Twitch says was earned: every
+   * mineable reward of a known campaign with `grantCount` above what the
+   * history holds gets the missing entries. Covers rewards Twitch granted on
+   * its own, ones claimed outside dropforge, and claims a restart lost.
+   */
+  private async syncRewardHistory(force = false) {
+    if (this.rewardHistorySyncing) return;
+    const now = Date.now();
+    if (!force && now - this.lastRewardHistorySync < REWARD_HISTORY_SYNC_MS) return;
+    // Wait for the first directory scan so there is something to check.
+    if (rewardDirectory.list().length === 0) return;
+    this.rewardHistorySyncing = true;
+    this.lastRewardHistorySync = now;
+    try {
+      const ids = new Set<string>([
+        ...rewardDirectory.list().map((c) => c.id),
+        ...this.settings.rewardQueue.map((e) => e.campaignId),
+      ]);
+      const progress = await fetchCampaignsProgress(this.auth, [...ids]);
+      let added = 0;
+      for (const [campaignId, groups] of progress) {
+        for (const [groupId, p] of groups) {
+          const earned = Math.max(p.grantCount, p.status === "CLAIMED" ? 1 : 0);
+          if (earned <= 0) continue;
+          const rewardId = `${campaignId}:${groupId}`;
+          const have = this.settings.rewardHistory.filter((h) => h.rewardId === rewardId).length;
+          if (have >= earned) continue;
+          const entry =
+            rewardDirectory.entry(rewardId) ?? this.settings.rewardQueue.find((e) => e.id === rewardId);
+          if (!entry) continue;
+          for (let n = have + 1; n <= earned; n++) {
+            this.recordRewardHistory(entry, n, "twitch");
+            added++;
+          }
+        }
+      }
+      if (added > 0) {
+        this.addLog("info", `Synced ${added} earned reward(s) from Twitch into Mined rewards`);
+        this.emit();
+      }
+    } catch (err) {
+      if (err instanceof Error && err.message === "UNAUTHORIZED") throw err;
+      this.addLog("warn", `Could not sync earned rewards: ${err instanceof Error ? err.message : "unknown error"}`);
+    } finally {
+      this.rewardHistorySyncing = false;
+    }
+  }
+
+  private recordRewardHistory(
+    entry: RewardQueueEntry,
+    grantNumber: number,
+    source: "dropforge" | "twitch" = "dropforge"
+  ) {
     const pool = entry.poolItems ?? [];
     // Chests hand out their pool in order (Twitch's own claim callout reads
     // pool[grantCount - 1]); fall back to the chest itself.
@@ -2478,6 +2539,7 @@ export class MinerWorker {
       channelLogin: this.reward?.entry.id === entry.id ? this.reward.channelLogin : entry.channelLogin,
       grantNumber: entry.repeatTimes ? grantNumber : null,
       claimedAt: new Date().toISOString(),
+      source,
     };
     const history = [record, ...this.settings.rewardHistory].slice(0, MAX_REWARD_HISTORY);
     this.settings.rewardHistory = history;
@@ -2495,6 +2557,8 @@ export class MinerWorker {
     this.rewardCooldownUntil.delete(entry.id);
     this.rewardClaimAttemptAt.delete(entry.id);
     if (note) this.addLog("info", `"${entry.rewardName}" ${note} — removed from queue`);
+    // Earned outside our own claim (auto-granted, claimed elsewhere): pick it up.
+    if (note === "already earned") void this.syncRewardHistory(true).catch(() => undefined);
     if (this.reward?.entry.id === entry.id) this.stopReward();
     this.emit();
   }

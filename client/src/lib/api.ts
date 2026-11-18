@@ -130,6 +130,7 @@ export interface RewardHistoryEntry {
   channelLogin: string;
   grantNumber: number | null;
   claimedAt: string;
+  source?: "dropforge" | "twitch";
 }
 
 export interface CategoryChannel {
