@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { motion } from "framer-motion";
 import { Boxes, Gauge, ShieldCheck } from "lucide-react";
 import { BrandMark } from "@/components/Brand";
@@ -29,8 +30,14 @@ export function AuthShell({
   children: React.ReactNode;
   className?: string;
 }) {
+  useEffect(() => {
+    const root = document.documentElement;
+    root.classList.add("auth-page");
+    return () => root.classList.remove("auth-page");
+  }, []);
+
   return (
-    <div className="dashboard-scroll relative h-dvh overflow-y-auto">
+    <div className="relative min-h-dvh">
       {/* ambient backdrop — kept only on the auth screens; the dashboard is plain black */}
       <div
         aria-hidden
@@ -58,7 +65,7 @@ export function AuthShell({
 
       {/* Top-aligned on phones: a centered form jumps when the keyboard resizes
           the viewport, and Android then drops focus and closes the keyboard. */}
-      <div className="relative mx-auto flex min-h-full w-full max-w-6xl flex-col justify-start gap-10 px-5 pb-10 pt-[max(2.5rem,env(safe-area-inset-top))] sm:justify-center sm:py-10 lg:flex-row lg:items-center lg:gap-16 lg:px-8">
+      <div className="relative mx-auto flex min-h-dvh w-full max-w-6xl flex-col justify-start gap-10 px-5 pb-10 pt-[max(2.5rem,env(safe-area-inset-top))] sm:justify-center sm:py-10 lg:flex-row lg:items-center lg:gap-16 lg:px-8">
         <motion.div
           initial={{ opacity: 0, y: 12 }}
           animate={{ opacity: 1, y: 0 }}

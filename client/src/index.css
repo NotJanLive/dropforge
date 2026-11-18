@@ -57,6 +57,17 @@
     overflow: hidden;
   }
 
+  /* Login/setup screens scroll the page itself: Android browsers only keep
+     the keyboard open reliably when they can scroll the document to the
+     focused field (see AuthShell). */
+  html.auth-page,
+  html.auth-page body,
+  html.auth-page #root {
+    height: auto;
+    min-height: 100%;
+    overflow: visible;
+  }
+
   html {
     -webkit-text-size-adjust: 100%;
   }
