@@ -649,7 +649,9 @@ function QueueRow({
           <span className="truncate">
             {item.state === "paused" && item.resumeAt
               ? `again ${new Date(item.resumeAt).toLocaleString([], { weekday: "short", hour: "2-digit", minute: "2-digit" })}`
-              : item.endsAt
+              : item.state === "paused" && item.repeatTimes
+                ? "next round pending"
+                : item.endsAt
                 ? formatEndsIn(item.endsAt)
                 : ""}
           </span>

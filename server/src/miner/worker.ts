@@ -162,6 +162,8 @@ export class MinerWorker {
   private rewardSwitching = false;
   private rewardProgress = new Map<string, RewardProgress>();
   private rewardCooldownUntil = new Map<string, number>();
+  /** Last "round done" time logged per reward, so it is logged once. */
+  private rewardRoundLogged = new Map<string, number>();
   private rewardClaimAttemptAt = new Map<string, number>();
   private lastRewardQueueRefresh = 0;
   private rewardProgressErrorAt = 0;
@@ -2053,7 +2055,7 @@ export class MinerWorker {
       const mining = this.reward?.entry.id === e.id;
       const live =
         mining || (e.kind === "channel" ? rewardDirectory.isLive(e.channelId) === true : true);
-      const cooldown = this.rewardCooldownUntil.get(e.id) ?? 0;
+      const cooldown = mining ? 0 : this.rewardWaitUntil(e, now);
       let state: RewardQueueState;
       if (mining) state = "mining";
       else if (p?.status === "CLAIMABLE") state = "claimable";
@@ -2065,7 +2067,7 @@ export class MinerWorker {
         currentMinutes: Math.max(0, p?.currentMinutes ?? 0),
         grantCount: p?.grantCount ?? 0,
         state,
-        resumeAt: cooldown > now ? new Date(cooldown).toISOString() : null,
+        resumeAt: cooldown > now && Number.isFinite(cooldown) ? new Date(cooldown).toISOString() : null,
         live,
         pinned: this.settings.pinnedRewardId === e.id,
         watchingChannel: mining
@@ -2087,8 +2089,8 @@ export class MinerWorker {
 
   private rewardEligible(e: RewardQueueEntry, now = Date.now()): boolean {
     if (e.endsAt && Date.parse(e.endsAt) <= now) return false;
-    if ((this.rewardCooldownUntil.get(e.id) ?? 0) > now) return false;
     if (this.rewardDone(e)) return false;
+    if (this.rewardWaitUntil(e, now) > 0) return false;
     if (this.reward?.entry.id === e.id) return true;
     if (e.kind === "channel") return Boolean(e.channelLogin) && rewardDirectory.isLive(e.channelId) === true;
     return e.categoryIds.length > 0;
@@ -2330,19 +2332,46 @@ export class MinerWorker {
       return true;
     }
     const p = this.rewardProgress.get(entry.id);
-    const next = p?.nextEligibleAt ? Date.parse(p.nextEligibleAt) : NaN;
-    if (Number.isFinite(next) && next > Date.now() && p?.status !== "CLAIMABLE") {
-      if ((this.rewardCooldownUntil.get(entry.id) ?? 0) < next) {
-        this.rewardCooldownUntil.set(entry.id, next);
-        this.addLog(
-          "info",
-          `"${entry.rewardName}" earned ${p?.grantCount ?? 0}${entry.repeatTimes ? `/${entry.repeatTimes}` : ""} — next one from ${new Date(next).toLocaleString()}`
-        );
-      }
-      if (this.reward?.entry.id === entry.id) this.stopReward();
-      return true;
+    if (!p || p.status === "CLAIMABLE") return false;
+    const next = this.roundWaitUntil(entry, p);
+    if (next <= 0) return false;
+    if (this.rewardRoundLogged.get(entry.id) !== next) {
+      this.rewardRoundLogged.set(entry.id, next);
+      const when = next === Infinity ? "when Twitch opens the next round" : `from ${new Date(next).toLocaleString()}`;
+      this.addLog(
+        "info",
+        `"${entry.rewardName}" earned ${p.grantCount}${entry.repeatTimes ? `/${entry.repeatTimes}` : ""} — this round is done, next one ${when}`
+      );
     }
-    return false;
+    if (this.reward?.entry.id === entry.id) this.stopReward();
+    return true;
+  }
+
+  /**
+   * When a repeatable reward can be mined again, from Twitch's own progress
+   * (so it survives restarts): the current round is finished (CLAIMED or
+   * all minutes watched) → wait for `nextEligibleAt` / the window end. With
+   * no time from Twitch it stays parked (Infinity) until a progress refresh
+   * shows the counter reset. 0 = minable now.
+   */
+  private roundWaitUntil(entry: RewardQueueEntry, p: RewardProgress, now = Date.now()): number {
+    if (p.status === "CLAIMABLE") return 0;
+    const next = Date.parse(p.nextEligibleAt ?? "");
+    if (Number.isFinite(next) && next > now) return next;
+    const roundDone =
+      p.status === "CLAIMED" || (p.requiredMinutes > 0 && p.currentMinutes >= p.requiredMinutes);
+    if (!roundDone || !entry.repeatTimes) return 0;
+    const end = Date.parse(p.windowEndsAt ?? "");
+    return Number.isFinite(end) && end > now ? end : Infinity;
+  }
+
+  /** Earliest time a queued reward may be mined again (0 = now). */
+  private rewardWaitUntil(entry: RewardQueueEntry, now = Date.now()): number {
+    const cooldown = this.rewardCooldownUntil.get(entry.id) ?? 0;
+    const p = this.rewardProgress.get(entry.id);
+    const round = p ? this.roundWaitUntil(entry, p, now) : 0;
+    const wait = Math.max(cooldown, round);
+    return wait > now ? wait : 0;
   }
 
   /** Load progress for one queued reward (and others sharing its query). */

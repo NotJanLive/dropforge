@@ -95,6 +95,8 @@ export interface RewardProgress {
   requiredMinutes: number;
   grantCount: number;
   nextEligibleAt: string | null;
+  /** Repeatable groups: end of the current earning window. */
+  windowEndsAt: string | null;
 }
 
 async function publicGqlOnce(query: string, variables: Json): Promise<Json> {
@@ -168,7 +170,7 @@ const CHANNEL_INFO_QUERY = `
   }
 `;
 
-const SELF_FIELDS = `self { status currentMinutesWatched grantCount nextEligibleAt }`;
+const SELF_FIELDS = `self { status currentMinutesWatched grantCount nextEligibleAt currentWindow { expiresAt } }`;
 
 const CHANNEL_PROGRESS_QUERY = `
   query DropforgeChannelRewardProgress($channelID: ID!) {
@@ -596,6 +598,9 @@ function parseProgress(groups: Json[]): Map<string, RewardProgress> {
       requiredMinutes: Number(asRecord(asRecord(g.progressCriteria).requirements).minutesWatched ?? 0),
       grantCount: Number(self.grantCount ?? 0),
       nextEligibleAt: self.nextEligibleAt ? String(self.nextEligibleAt) : null,
+      windowEndsAt: asRecord(self.currentWindow).expiresAt
+        ? String(asRecord(self.currentWindow).expiresAt)
+        : null,
     });
   }
   return out;
