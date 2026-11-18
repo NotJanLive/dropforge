@@ -45,6 +45,7 @@ export const userMinerSettings = sqliteTable("user_miner_settings", {
   claimedDropIds: text("claimed_drop_ids").notNull().default("[]"),
   rewardQueue: text("reward_queue").notNull().default("[]"),
   pinnedRewardId: text("pinned_reward_id"),
+  rewardHistory: text("reward_history").notNull().default("[]"),
   updatedAt: text("updated_at").notNull(),
 });
 

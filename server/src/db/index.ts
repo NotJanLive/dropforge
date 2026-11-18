@@ -159,6 +159,11 @@ function migrateDb() {
   } catch {
     /* column already exists */
   }
+  try {
+    sqlite!.run(`ALTER TABLE user_miner_settings ADD COLUMN reward_history TEXT NOT NULL DEFAULT '[]'`);
+  } catch {
+    /* column already exists */
+  }
 }
 
 export function getSiteConfig() {

@@ -398,6 +398,8 @@ class RewardDirectory {
       categoryNames: cats.names,
       endsAt: c.endsAt,
       repeatTimes: g.repeatTimes,
+      poolItems: g.rewards.flatMap((r) => r.pool.map((p) => ({ name: p.name, imageUrl: p.imageUrl }))),
+      preferredChannel: null,
     };
   }
 
@@ -629,6 +631,47 @@ export async function fetchRewardProgress(
     throw new Error(String(asArray(result.errors)[0].message ?? "GQL error"));
   }
   return parseProgress(asArray(c.rewardGroups));
+}
+
+export interface CategoryChannel {
+  id: string;
+  login: string;
+  displayName: string;
+  imageUrl: string;
+  viewers: number;
+  gameName: string;
+}
+
+/** Live channels across the categories, most viewers first. */
+export async function listCategoryChannels(categoryIds: string[], limit = 40): Promise<CategoryChannel[]> {
+  const seen = new Map<string, CategoryChannel>();
+  await mapLimit(categoryIds.slice(0, 25), 4, async (id) => {
+    try {
+      const data = await publicGql(
+        `query($id: ID!) { game(id: $id) { displayName streams(first: 25) {
+          edges { node { viewersCount broadcaster { id login displayName profileImageURL(width: 70) } } } } } }`,
+        { id }
+      );
+      const game = asRecord(asRecord(data.data).game);
+      for (const e of asArray(asRecord(game.streams).edges)) {
+        const node = asRecord(e.node);
+        const user = asRecord(node.broadcaster);
+        const login = String(user.login ?? "");
+        if (!login || seen.has(login)) continue;
+        seen.set(login, {
+          id: String(user.id ?? ""),
+          login,
+          displayName: String(user.displayName ?? login),
+          imageUrl: String(user.profileImageURL ?? ""),
+          viewers: Number(node.viewersCount ?? 0),
+          gameName: String(game.displayName ?? ""),
+        });
+      }
+    } catch {
+      /* skip this category */
+    }
+  });
+  return [...seen.values()].sort((a, b) => b.viewers - a.viewers).slice(0, limit);
 }
 
 /** Most-watched live channel streaming one of the categories. */

@@ -17,6 +17,7 @@ import {
   INVENTORY_MAINTENANCE_MS,
   IDLE_INVENTORY_REFRESH_MS,
   MAX_MINER_LOGS,
+  type RewardHistoryEntry,
   type RewardQueueEntry,
   type RewardQueueState,
   type RewardQueueView,
@@ -63,7 +64,12 @@ export interface MinerSettings {
   activeCampaignId: string | null;
   rewardQueue: RewardQueueEntry[];
   pinnedRewardId: string | null;
+  rewardHistory: RewardHistoryEntry[];
 }
+
+const MAX_REWARD_HISTORY = 300;
+/** How often a reward running on a fallback channel re-checks the user's pick. */
+const PREFERRED_CHANNEL_RECHECK_MS = 5 * 60 * 1000;
 
 /** Progress checks (~1 min each) without a credited minute before moving on. */
 const REWARD_STALL_TICKS = 15;
@@ -85,6 +91,8 @@ interface ActiveReward {
   lastMinutes: number;
   stallTicks: number;
   watchFailures: number;
+  /** Last time a fallback channel checked whether the picked channel is back. */
+  preferredCheckAt: number;
 }
 
 type StatusCallback = (userId: number, status: MinerStatus) => void;
@@ -498,6 +506,7 @@ export class MinerWorker {
       rewardQueue,
       pinnedRewardId: this.settings.pinnedRewardId,
       rewardMining,
+      rewardHistory: this.settings.rewardHistory,
     };
   }
 
@@ -1997,8 +2006,19 @@ export class MinerWorker {
       if (!current) {
         this.stopReward(`Removed "${this.reward.entry.rewardName}" from the reward queue`);
       } else {
+        const channelChanged =
+          (current.preferredChannel ?? null) !== (this.reward.entry.preferredChannel ?? null) &&
+          current.kind === "category" &&
+          (current.preferredChannel ?? "").toLowerCase() !== this.reward.channelLogin.toLowerCase();
         this.reward.entry = current;
         this.reward.preempt = this.settings.pinnedRewardId === current.id;
+        if (channelChanged) {
+          this.stopReward(
+            current.preferredChannel
+              ? `Switching "${current.rewardName}" to ${current.preferredChannel}`
+              : `"${current.rewardName}" back on automatic channel choice`
+          );
+        }
       }
     }
     // A user change is a fresh start for everything still queued.
@@ -2117,7 +2137,14 @@ export class MinerWorker {
     try {
       let channelId = entry.channelId;
       let login = entry.channelLogin;
-      if (entry.kind === "category") {
+      if (entry.kind === "category" && entry.preferredChannel) {
+        const picked = await this.checkPreferredChannel(entry);
+        if (picked) {
+          channelId = picked.channelId;
+          login = entry.preferredChannel;
+        }
+      }
+      if (entry.kind === "category" && !login) {
         const found = await findCategoryChannel(entry.categoryIds);
         if (!found) {
           this.coolDownReward(entry, 10 * 60 * 1000);
@@ -2160,6 +2187,7 @@ export class MinerWorker {
         lastMinutes: progress?.currentMinutes ?? -1,
         stallTicks: 0,
         watchFailures: 0,
+        preferredCheckAt: Date.now(),
       };
       this.lastWatchAt = new Date().toISOString();
       this.addLog(
@@ -2209,6 +2237,22 @@ export class MinerWorker {
           `${login} switched to "${info.gameName || "unknown"}" — "${entry.rewardName}" needs ${entry.categoryNames.join(" or ")}`
         );
         return;
+      }
+
+      if (
+        entry.kind === "category" &&
+        entry.preferredChannel &&
+        entry.preferredChannel.toLowerCase() !== login.toLowerCase() &&
+        Date.now() - r.preferredCheckAt >= PREFERRED_CHANNEL_RECHECK_MS
+      ) {
+        r.preferredCheckAt = Date.now();
+        if (await this.checkPreferredChannel(entry, true)) {
+          if (this.reward !== r) return;
+          this.stopReward(`${entry.preferredChannel} is back — switching "${entry.rewardName}" to it`);
+          await this.maintainReward();
+          return;
+        }
+        if (this.reward !== r) return;
       }
 
       const stream = await sendWatchStream(this.auth, login);
@@ -2371,6 +2415,7 @@ export class MinerWorker {
       this.addLog("success", `Claimed reward: ${entry.rewardName} (${label})`);
       this.rewardClaimAttemptAt.delete(entry.id);
       if (after && after.grantCount <= before) after.grantCount = before + 1;
+      this.recordRewardHistory(entry, after?.grantCount ?? before + 1);
       if (!entry.repeatTimes) {
         this.finishReward(entry);
         return;
@@ -2384,6 +2429,59 @@ export class MinerWorker {
       if (err instanceof Error && err.message === "UNAUTHORIZED") throw err;
       this.addLog("warn", `Reward claim failed: ${err instanceof Error ? err.message : "unknown error"}`);
     }
+  }
+
+  /**
+   * Whether the user's picked channel for a reward campaign can be watched
+   * now. Logs why not (unless quiet) so a silent fallback is never a mystery.
+   */
+  private async checkPreferredChannel(
+    entry: RewardQueueEntry,
+    quiet = false
+  ): Promise<{ channelId: string } | null> {
+    const login = entry.preferredChannel;
+    if (!login) return null;
+    try {
+      const info = await fetchStreamInfo(this.auth, login);
+      if (!info.online || !info.broadcastId) {
+        if (!quiet) this.addLog("info", `${login} is offline — using another channel for "${entry.rewardName}"`);
+        return null;
+      }
+      if (!this.rewardCategoryOk(entry, info.gameId)) {
+        if (!quiet) {
+          this.addLog(
+            "info",
+            `${login} streams "${info.gameName || "unknown"}" — using another channel for "${entry.rewardName}"`
+          );
+        }
+        return null;
+      }
+      return { channelId: info.channelId ?? "" };
+    } catch {
+      return null;
+    }
+  }
+
+  private recordRewardHistory(entry: RewardQueueEntry, grantNumber: number) {
+    const pool = entry.poolItems ?? [];
+    // Chests hand out their pool in order (Twitch's own claim callout reads
+    // pool[grantCount - 1]); fall back to the chest itself.
+    const item = pool.length > 0 ? pool[Math.min(pool.length, Math.max(1, grantNumber)) - 1] : null;
+    const record: RewardHistoryEntry = {
+      rewardId: entry.id,
+      kind: entry.kind,
+      name: item?.name || entry.rewardName,
+      imageUrl: item?.imageUrl || entry.rewardImageUrl,
+      fromChest: item ? entry.rewardName : null,
+      rewardTypes: entry.rewardTypes,
+      campaignName: entry.campaignName,
+      channelLogin: this.reward?.entry.id === entry.id ? this.reward.channelLogin : entry.channelLogin,
+      grantNumber: entry.repeatTimes ? grantNumber : null,
+      claimedAt: new Date().toISOString(),
+    };
+    const history = [record, ...this.settings.rewardHistory].slice(0, MAX_REWARD_HISTORY);
+    this.settings.rewardHistory = history;
+    this.onSettingsPersist({ rewardHistory: history });
   }
 
   /** Reward earned (or gone) — drop it from the queue and free the watch slot. */

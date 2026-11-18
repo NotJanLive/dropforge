@@ -116,6 +116,29 @@ export interface MinerStatus {
   rewardQueue?: RewardQueueView[];
   pinnedRewardId?: string | null;
   rewardMining?: RewardQueueView | null;
+  rewardHistory?: RewardHistoryEntry[];
+}
+
+export interface RewardHistoryEntry {
+  rewardId: string;
+  kind: RewardKind;
+  name: string;
+  imageUrl: string;
+  fromChest: string | null;
+  rewardTypes: string[];
+  campaignName: string;
+  channelLogin: string;
+  grantNumber: number | null;
+  claimedAt: string;
+}
+
+export interface CategoryChannel {
+  id: string;
+  login: string;
+  displayName: string;
+  imageUrl: string;
+  viewers: number;
+  gameName: string;
 }
 
 export type RewardKind = "channel" | "category";
@@ -192,6 +215,7 @@ export interface RewardQueueView {
   live: boolean;
   pinned: boolean;
   watchingChannel: string | null;
+  preferredChannel?: string | null;
 }
 
 export interface RewardScanInfo {
@@ -370,6 +394,13 @@ export const api = {
     request<{ campaigns: RewardCampaign[] }>("/api/twitch/rewards/lookup", {
       method: "POST",
       body: JSON.stringify({ login }),
+    }),
+  rewardChannels: (id: string) =>
+    request<{ channels: CategoryChannel[] }>(`/api/twitch/rewards/channels?id=${encodeURIComponent(id)}`),
+  setRewardChannel: (id: string, channel: string | null) =>
+    request<{ ok: boolean; status: MinerStatus | null }>("/api/twitch/miner/rewards/channel", {
+      method: "PUT",
+      body: JSON.stringify({ id, channel }),
     }),
   updateRewardQueue: (queue: string[], pinnedId: string | null) =>
     request<{ ok: boolean; status: MinerStatus | null }>("/api/twitch/miner/rewards", {

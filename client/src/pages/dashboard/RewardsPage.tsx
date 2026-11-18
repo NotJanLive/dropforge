@@ -19,6 +19,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Progress } from "@/components/ui/progress";
+import { Select } from "@/components/ui/select";
 import { DashboardPage, DashboardScrollArea } from "@/components/DashboardPage";
 import { EmptyState } from "@/components/EmptyState";
 import { PageHeader } from "@/components/PageHeader";
@@ -28,6 +29,7 @@ import { useAuth } from "@/context/AuthContext";
 import { useMinerWebSocket } from "@/hooks/useMinerWebSocket";
 import {
   api,
+  type CategoryChannel,
   type MinerStatus,
   type RewardCampaign,
   type RewardGroupInfo,
@@ -132,6 +134,17 @@ export function RewardsPage() {
     save(queuedIds.has(id) ? ids : [id, ...ids], pinnedId === id ? null : id, id);
   const removeFromQueue = (id: string) =>
     save(ids.filter((x) => x !== id), pinnedId === id ? null : pinnedId, id);
+  const pickChannel = async (id: string, channel: string | null) => {
+    setSaving(id);
+    try {
+      const r = await api.setRewardChannel(id, channel);
+      if (r.status) setStatus(r.status);
+    } catch (err) {
+      setFeedback({ type: "error", message: err instanceof Error ? err.message : "Failed to set channel" });
+    } finally {
+      setSaving(null);
+    }
+  };
   const move = (id: string, delta: number) => {
     const i = ids.indexOf(id);
     const j = i + delta;
@@ -353,6 +366,7 @@ export function RewardsPage() {
                   onUp={() => move(q.id, -1)}
                   onDown={() => move(q.id, 1)}
                   onRemove={() => removeFromQueue(q.id)}
+                  onPickChannel={(channel) => pickChannel(q.id, channel)}
                 />
               ))}
             </CardContent>
@@ -566,6 +580,7 @@ function QueueRow({
   onUp,
   onDown,
   onRemove,
+  onPickChannel,
 }: {
   item: RewardQueueView;
   first: boolean;
@@ -575,6 +590,7 @@ function QueueRow({
   onUp: () => void;
   onDown: () => void;
   onRemove: () => void;
+  onPickChannel: (channel: string | null) => void;
 }) {
   const pct = item.requiredMinutes > 0 ? (item.currentMinutes / item.requiredMinutes) * 100 : 0;
   const where =
@@ -614,6 +630,16 @@ function QueueRow({
 
       <TypeChips types={item.rewardTypes} />
 
+      {item.kind === "category" && (
+        <ChannelPicker
+          rewardId={item.id}
+          value={item.preferredChannel ?? null}
+          watching={item.state === "mining" ? item.watchingChannel : null}
+          disabled={busy}
+          onChange={onPickChannel}
+        />
+      )}
+
       <div className="space-y-1">
         <div className="flex items-baseline justify-between gap-2 text-2xs tabular-nums text-muted-foreground">
           <span>
@@ -646,6 +672,73 @@ function QueueRow({
           <Trash2 className="h-4 w-4" />
         </Button>
       </div>
+    </div>
+  );
+}
+
+/** Channel choice for a reward campaign: automatic or one live channel in its categories. */
+function ChannelPicker({
+  rewardId,
+  value,
+  watching,
+  disabled,
+  onChange,
+}: {
+  rewardId: string;
+  value: string | null;
+  watching: string | null;
+  disabled: boolean;
+  onChange: (channel: string | null) => void;
+}) {
+  const [channels, setChannels] = useState<CategoryChannel[] | null>(null);
+  const [loading, setLoading] = useState(false);
+
+  const load = async () => {
+    if (loading) return;
+    setLoading(true);
+    try {
+      const r = await api.rewardChannels(rewardId);
+      setChannels(r.channels);
+    } catch {
+      setChannels((prev) => prev ?? []);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    void load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rewardId]);
+
+  const list = channels ?? [];
+  const pickedMissing = value && !list.some((c) => c.login.toLowerCase() === value.toLowerCase());
+  const fallback = value && watching && watching.toLowerCase() !== value.toLowerCase();
+
+  return (
+    <div className="space-y-1">
+      <Select
+        aria-label="Channel"
+        className="h-9 text-xs"
+        value={value ?? "__auto__"}
+        disabled={disabled}
+        onFocus={() => void load()}
+        onChange={(e) => onChange(e.target.value === "__auto__" ? null : e.target.value)}
+      >
+        <option value="__auto__">Channel: auto (most viewers)</option>
+        {pickedMissing && <option value={value!}>{value} (not live in this category)</option>}
+        {list.map((c) => (
+          <option key={c.login} value={c.login}>
+            {c.displayName} · {c.viewers.toLocaleString()} viewers{c.gameName ? ` · ${c.gameName}` : ""}
+          </option>
+        ))}
+        {channels === null && <option disabled>Loading channels…</option>}
+      </Select>
+      {fallback && (
+        <p className="text-2xs text-warning">
+          {value} can't be watched right now — using {watching} until it is back
+        </p>
+      )}
     </div>
   );
 }

@@ -12,7 +12,7 @@ import {
 } from "../twitch/session.js";
 import { minerManager, parseJsonArray, createUnlinkedMinerStatus, loadMinerLogs } from "../miner/manager.js";
 import type { RewardQueueEntry, CampaignInfo } from "../miner/constants.js";
-import { rewardDirectory } from "../miner/rewards.js";
+import { listCategoryChannels, rewardDirectory } from "../miner/rewards.js";
 
 const router = Router();
 
@@ -237,11 +237,38 @@ router.put("/miner/rewards", requireUser, async (req, res) => {
   const entries: RewardQueueEntry[] = [];
   for (const raw of queue) {
     const id = String(raw);
-    const entry = rewardDirectory.entry(id) ?? current.get(id);
+    const known = current.get(id);
+    const fresh = rewardDirectory.entry(id);
+    // Keep the user's channel pick when the snapshot is refreshed.
+    const entry = fresh ? { ...fresh, preferredChannel: known?.preferredChannel ?? null } : known;
     if (entry) entries.push(entry);
   }
   const pinned = typeof pinnedId === "string" && pinnedId ? pinnedId : null;
   await minerManager.updateRewardQueue(user.id, entries, pinned);
+  res.json({ ok: true, status: minerManager.getStatus(user.id) });
+});
+
+router.get("/rewards/channels", requireUser, async (req, res) => {
+  const user = (req as typeof req & { currentUser: { id: number } }).currentUser;
+  const id = String(req.query.id ?? "");
+  const entry =
+    minerManager.getRewardSettings(user.id).rewardQueue.find((e) => e.id === id) ?? rewardDirectory.entry(id);
+  if (!entry || entry.kind !== "category") {
+    res.status(404).json({ error: "Reward campaign not found" });
+    return;
+  }
+  res.json({ channels: await listCategoryChannels(entry.categoryIds) });
+});
+
+router.put("/miner/rewards/channel", requireUser, async (req, res) => {
+  const user = (req as typeof req & { currentUser: { id: number } }).currentUser;
+  const { id, channel } = req.body as { id?: string; channel?: string | null };
+  const login = typeof channel === "string" ? channel.trim().replace(/^@/, "").toLowerCase() : "";
+  if (!id || (login && !/^[a-z0-9_]{2,25}$/.test(login))) {
+    res.status(400).json({ error: "Invalid reward or channel" });
+    return;
+  }
+  await minerManager.setRewardChannel(user.id, id, login || null);
   res.json({ ok: true, status: minerManager.getStatus(user.id) });
 });
 

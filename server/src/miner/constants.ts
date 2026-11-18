@@ -277,6 +277,26 @@ export interface MinerStatus {
   pinnedRewardId: string | null;
   /** Reward being watched right now, if any. */
   rewardMining: RewardQueueView | null;
+  /** Rewards this miner claimed, newest first. */
+  rewardHistory: RewardHistoryEntry[];
+}
+
+/** One reward claimed by dropforge. */
+export interface RewardHistoryEntry {
+  rewardId: string;
+  kind: "channel" | "category";
+  /** What was earned; for chests the pool item it most likely gave. */
+  name: string;
+  imageUrl: string;
+  /** Chest name when `name` is a pool item. */
+  fromChest: string | null;
+  rewardTypes: string[];
+  campaignName: string;
+  /** Channel watched for it. */
+  channelLogin: string;
+  /** 1-based count for repeatable rewards. */
+  grantNumber: number | null;
+  claimedAt: string;
 }
 
 /** Snapshot of one queued reward group (persisted per user). */
@@ -303,6 +323,10 @@ export interface RewardQueueEntry {
   endsAt: string;
   /** Repeatable groups: how often it can be earned. */
   repeatTimes: number | null;
+  /** Chest contents in Twitch's order (empty if not a chest). */
+  poolItems?: Array<{ name: string; imageUrl: string }>;
+  /** Reward campaigns only: channel login picked by the user (null = auto). */
+  preferredChannel?: string | null;
 }
 
 export type RewardQueueState = "mining" | "waiting" | "offline" | "paused" | "claimable";

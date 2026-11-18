@@ -1,11 +1,13 @@
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
-import { Check, Link2Off, Package, RefreshCw } from "lucide-react";
+import { Link } from "react-router-dom";
+import { Check, Gift, Link2Off, Package, RefreshCw } from "lucide-react";
 import { Alert } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
-import { api, type MinerStatus } from "@/lib/api";
+import { api, type MinerStatus, type RewardHistoryEntry } from "@/lib/api";
+import { rewardTypeLabel } from "@/lib/rewards";
 import { useAuth } from "@/context/AuthContext";
 import { useMinerWebSocket } from "@/hooks/useMinerWebSocket";
 import { TwitchImage } from "@/components/TwitchImage";
@@ -244,6 +246,8 @@ export function InventoryPage() {
       </div>
 
       <DashboardScrollArea className="space-y-3.5 pb-2">
+        <MinedRewards history={live?.rewardHistory ?? []} />
+
         {visibleCampaigns.some((c) => !c.linked) && (
           <Alert tone="warning" icon={Link2Off} title="Some campaigns need a linked game account">
             Link your game account on Twitch before those drops can be claimed automatically.{" "}
@@ -424,5 +428,71 @@ export function InventoryPage() {
         })}
       </DashboardScrollArea>
     </DashboardPage>
+  );
+}
+
+/** Rewards (reward campaigns, creator badges) this miner claimed. */
+function MinedRewards({ history }: { history: RewardHistoryEntry[] }) {
+  return (
+    <Card className="overflow-hidden">
+      <div className="flex items-center justify-between gap-3 px-4 pt-4 sm:px-5">
+        <div className="flex min-w-0 items-center gap-2">
+          <Gift className="h-4 w-4 shrink-0 text-primary" />
+          <h2 className="truncate text-base font-semibold tracking-tight">Mined rewards</h2>
+          <Badge variant="neutral" className="tabular-nums">
+            {history.length}
+          </Badge>
+        </div>
+        <Link to="/dashboard/rewards" className="shrink-0 text-2xs font-medium text-primary hover:underline">
+          Manage rewards
+        </Link>
+      </div>
+      <CardContent className="p-0 py-3.5 sm:py-4">
+        {history.length === 0 ? (
+          <p className="px-4 text-2xs text-muted-foreground sm:px-5">
+            Badges, emotes and chests claimed from reward campaigns and creator badge drops show up here.
+          </p>
+        ) : (
+          <div className="scroll-slim flex gap-2.5 overflow-x-auto px-4 pb-1 sm:px-5">
+            {history.map((h, i) => (
+              <div
+                key={`${h.rewardId}-${h.claimedAt}-${i}`}
+                className="w-32 shrink-0 space-y-1.5 rounded-xl border border-success/30 bg-success/[0.07] p-2 text-center sm:w-36 sm:p-2.5"
+                title={`${h.campaignName}${h.channelLogin ? ` · watched on ${h.channelLogin}` : ""}`}
+              >
+                <TwitchImage
+                  src={h.imageUrl}
+                  alt={h.name}
+                  className="mx-auto h-16 w-16 rounded-lg bg-white/[0.04] object-contain p-1 ring-1 ring-inset ring-white/10 sm:h-[4.5rem] sm:w-[4.5rem]"
+                  fallbackClassName="mx-auto h-16 w-16 rounded-lg bg-white/[0.05] sm:h-[4.5rem] sm:w-[4.5rem]"
+                />
+                <p className="line-clamp-2 min-h-[2rem] text-2xs font-medium leading-tight">{h.name}</p>
+                <p className="truncate text-[0.625rem] text-muted-foreground">
+                  {h.fromChest
+                    ? `${h.fromChest}${h.grantNumber ? ` #${h.grantNumber}` : ""}`
+                    : h.kind === "channel"
+                      ? h.channelLogin
+                      : h.campaignName}
+                </p>
+                <div className="flex flex-wrap justify-center gap-1">
+                  {h.rewardTypes
+                    .filter((t) => t !== "CHEST")
+                    .slice(0, 2)
+                    .map((t) => (
+                      <Badge key={t} variant="neutral">
+                        {rewardTypeLabel(t)}
+                      </Badge>
+                    ))}
+                </div>
+                <p className="text-[0.625rem] tabular-nums text-success">
+                  {new Date(h.claimedAt).toLocaleDateString([], { day: "2-digit", month: "short" })}{" "}
+                  {new Date(h.claimedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                </p>
+              </div>
+            ))}
+          </div>
+        )}
+      </CardContent>
+    </Card>
   );
 }
