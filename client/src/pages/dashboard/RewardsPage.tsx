@@ -588,36 +588,35 @@ function GroupRow({
   const art = pool.length > 1 ? pool.slice(0, 4) : null;
   const self = group.self;
   const blocked = self?.availability === "earned" || self?.availability === "locked";
-  const cats = campaign.kind === "category" ? campaign.categoryNames : [];
+  const unlockNote = !group.autoProgress
+    ? group.laneSiblings.length > 0
+      ? `Unlocks after the earlier stage (line with ${group.laneSiblings.join(", ")})`
+      : "Unlocks only after other rewards, watching alone is not enough"
+    : null;
 
-  const details: string[] = [];
-  if (group.requirementType === "WATCH") {
-    if (campaign.kind === "channel") {
-      details.push(`Only on ${campaign.channel?.displayName || campaign.channel?.login || "this channel"}'s stream`);
-    } else if (cats.length > 0) {
-      details.push(
-        `Any channel streaming ${cats.length > 4 ? `${cats.slice(0, 4).join(", ")} or ${cats.length - 4} more` : cats.join(" or ")}`
-      );
-    } else {
-      details.push("Any channel");
-    }
+  // Short status label; the long explanation lives in the tooltip.
+  let statusLabel = self ? availabilityChip[self.availability].label : "";
+  if (self?.availability === "progress") statusLabel += ` · ${self.currentMinutes}/${self.requiredMinutes} min`;
+  if (self?.availability === "roundDone") {
+    statusLabel += self.resumeAt
+      ? ` · next ${new Date(self.resumeAt).toLocaleString([], { weekday: "short", hour: "2-digit", minute: "2-digit" })}`
+      : " · next round soon";
   }
-  if (!group.autoProgress) {
-    details.push(
-      group.laneSiblings.length > 0
-        ? `Unlocks only after the earlier stage, part of a line with ${group.laneSiblings.join(", ")}`
-        : "Unlocks only after other rewards, watching alone is not enough"
-    );
+  if (self?.availability === "locked") statusLabel += " · needs other rewards";
+  if (self && group.repeatTimes && self.grantCount > 0 && self.availability !== "earned") {
+    statusLabel += ` · ${self.grantCount}/${group.repeatTimes}`;
   }
-  if (pool.length > 0) {
-    details.push(`Chest with ${pool.map((p) => p.name).join(", ")}`);
-  }
+  const statusTip = [unlockNote, self ? `Twitch status: ${self.status}` : null].filter(Boolean).join("\n");
+  const artTip = pool.length > 0 ? `Chest: ${pool.map((p) => p.name).join(", ")}` : title;
 
   return (
     <div className={cn("flex flex-col gap-2.5 p-3 sm:flex-row sm:items-center", (!group.mineable || blocked) && "opacity-60")}>
       <div className="flex min-w-0 flex-1 items-start gap-3">
         {art ? (
-          <div className="grid h-10 w-10 shrink-0 grid-cols-2 gap-0.5 rounded-lg bg-white/[0.04] p-0.5 ring-1 ring-inset ring-white/10">
+          <div
+            title={artTip}
+            className="grid h-10 w-10 shrink-0 grid-cols-2 gap-0.5 rounded-lg bg-white/[0.04] p-0.5 ring-1 ring-inset ring-white/10"
+          >
             {art.map((p, i) => (
               <TwitchImage key={i} src={p.imageUrl} alt={p.name} className="h-full w-full object-contain" />
             ))}
@@ -626,34 +625,24 @@ function GroupRow({
           <RewardArt src={rewardImage(main)} alt={title} />
         )}
         <div className="min-w-0 flex-1 space-y-1">
-          <p className="truncate text-sm font-medium leading-snug" title={pool.length ? pool.map((p) => p.name).join(", ") : title}>
+          <p className="truncate text-sm font-medium leading-snug" title={title}>
             {title}
-            {group.name && group.name !== title && (
-              <span className="font-normal text-muted-foreground"> · {group.name}</span>
-            )}
           </p>
-          <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+          <div className="flex flex-wrap items-center gap-1">
             <TypeChips types={groupRewardTypes(group.rewards)} />
-            {self && (
-              <Badge variant={availabilityChip[self.availability].variant} title={`Twitch status: ${self.status}`}>
-                {availabilityChip[self.availability].label}
-                {(self.availability === "progress" || self.availability === "roundDone") &&
-                  ` · ${self.currentMinutes}/${self.requiredMinutes} min`}
-                {group.repeatTimes && self.grantCount > 0 && ` · ${self.grantCount}/${group.repeatTimes}`}
+            {self ? (
+              <Badge variant={availabilityChip[self.availability].variant} title={statusTip}>
+                {statusLabel}
               </Badge>
+            ) : (
+              unlockNote && (
+                <Badge variant="neutral" title={unlockNote}>
+                  Needs other rewards
+                </Badge>
+              )
             )}
           </div>
-          <p className="text-2xs font-medium text-foreground/80">{requirementText(group)}</p>
-          {details.map((d) => (
-            <p key={d} className="text-2xs leading-snug text-muted-foreground">
-              {d}
-            </p>
-          ))}
-          {self?.availability === "roundDone" && self.resumeAt && (
-            <p className="text-2xs text-warning">
-              Next round {new Date(self.resumeAt).toLocaleString([], { weekday: "short", hour: "2-digit", minute: "2-digit" })}
-            </p>
-          )}
+          <p className="text-2xs text-muted-foreground">{requirementText(group)}</p>
         </div>
       </div>
       {group.mineable ? (

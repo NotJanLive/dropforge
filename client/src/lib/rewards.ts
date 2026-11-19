@@ -69,10 +69,13 @@ export function requirementText(g: RewardGroupInfo): string {
   if (g.requirementType === "WATCH") {
     let text = `Watch ${formatWatchTime(g.minutesWatched)}`;
     if (g.repeatTimes) {
-      const every = resetText(g.resetSeconds);
+      const daily = g.resetSeconds === 86_400;
+      const every = daily ? "" : resetText(g.resetSeconds);
       text += g.completeAllRepeats
-        ? ` · ${g.repeatTimes} rounds${every ? `, ${every}` : ""}, all needed`
-        : ` · earn up to ${g.repeatTimes}×${every ? `, ${every}` : ""}`;
+        ? daily
+          ? ` · ${g.repeatTimes} days, all needed`
+          : ` · ${g.repeatTimes}×${every ? ` (${every})` : ""}, all needed`
+        : ` · up to ${g.repeatTimes}×${daily ? ", daily" : every ? ` (${every})` : ""}`;
     }
     return text;
   }
