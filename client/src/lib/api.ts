@@ -189,7 +189,7 @@ export interface RewardCampaign {
   groups: RewardGroupInfo[];
 }
 
-export type RewardQueueState = "mining" | "waiting" | "offline" | "paused" | "claimable";
+export type RewardQueueState = "mining" | "waiting" | "offline" | "paused" | "claimable" | "locked";
 
 export interface RewardQueueView {
   id: string;

@@ -53,6 +53,7 @@ const stateLabel: Record<RewardQueueState, string> = {
   offline: "Offline",
   paused: "Paused",
   claimable: "Claiming",
+  locked: "Locked",
 };
 
 const stateVariant: Record<RewardQueueState, "success" | "primary" | "neutral" | "warning" | "info"> = {
@@ -61,6 +62,7 @@ const stateVariant: Record<RewardQueueState, "success" | "primary" | "neutral" |
   offline: "neutral",
   paused: "warning",
   claimable: "info",
+  locked: "neutral",
 };
 
 type Feedback = { type: "success" | "error"; message: string } | null;
@@ -651,6 +653,8 @@ function QueueRow({
               ? `again ${new Date(item.resumeAt).toLocaleString([], { weekday: "short", hour: "2-digit", minute: "2-digit" })}`
               : item.state === "paused" && item.repeatTimes
                 ? "next round pending"
+                : item.state === "locked"
+                  ? "needs other rewards first"
                 : item.endsAt
                 ? formatEndsIn(item.endsAt)
                 : ""}

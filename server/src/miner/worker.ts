@@ -2059,6 +2059,7 @@ export class MinerWorker {
       let state: RewardQueueState;
       if (mining) state = "mining";
       else if (p?.status === "CLAIMABLE") state = "claimable";
+      else if (this.rewardLocked(e, p)) state = "locked";
       else if (cooldown > now) state = "paused";
       else state = live ? "waiting" : "offline";
       return {
@@ -2090,6 +2091,7 @@ export class MinerWorker {
   private rewardEligible(e: RewardQueueEntry, now = Date.now()): boolean {
     if (e.endsAt && Date.parse(e.endsAt) <= now) return false;
     if (this.rewardDone(e)) return false;
+    if (this.rewardLocked(e, this.rewardProgress.get(e.id))) return false;
     if (this.rewardWaitUntil(e, now) > 0) return false;
     if (this.reward?.entry.id === e.id) return true;
     if (e.kind === "channel") return Boolean(e.channelLogin) && rewardDirectory.isLive(e.channelId) === true;
@@ -2333,6 +2335,17 @@ export class MinerWorker {
     }
     const p = this.rewardProgress.get(entry.id);
     if (!p || p.status === "CLAIMABLE") return false;
+    if (this.rewardLocked(entry, p)) {
+      if (this.rewardRoundLogged.get(entry.id) !== -1) {
+        this.rewardRoundLogged.set(entry.id, -1);
+        this.addLog(
+          "info",
+          `"${entry.rewardName}" has all minutes but Twitch has not unlocked it yet (it likely needs other rewards first) — not mining it`
+        );
+      }
+      if (this.reward?.entry.id === entry.id) this.stopReward();
+      return true;
+    }
     const next = this.roundWaitUntil(entry, p);
     if (next <= 0) return false;
     if (this.rewardRoundLogged.get(entry.id) !== next) {
@@ -2358,11 +2371,34 @@ export class MinerWorker {
     if (p.status === "CLAIMABLE") return 0;
     const next = Date.parse(p.nextEligibleAt ?? "");
     if (Number.isFinite(next) && next > now) return next;
-    const roundDone =
-      p.status === "CLAIMED" || (p.requiredMinutes > 0 && p.currentMinutes >= p.requiredMinutes);
-    if (!roundDone || !entry.repeatTimes) return 0;
+    if (!entry.repeatTimes || !this.repeatRoundDone(p)) return 0;
     const end = Date.parse(p.windowEndsAt ?? "");
-    return Number.isFinite(end) && end > now ? end : Infinity;
+    if (Number.isFinite(end)) {
+      // Once the window is over, Twitch may only reset the counter after
+      // watching starts again — so a passed window means: mine again.
+      return end > now ? end : 0;
+    }
+    // No time from Twitch: wait until a progress refresh shows a new round.
+    return Number.isFinite(next) ? 0 : Infinity;
+  }
+
+  /** Repeatable reward whose current round was already earned. */
+  private repeatRoundDone(p: RewardProgress): boolean {
+    if (p.status === "CLAIMABLE") return false;
+    if (p.status === "CLAIMED") return true;
+    return p.grantCount > 0 && p.requiredMinutes > 0 && p.currentMinutes >= p.requiredMinutes;
+  }
+
+  /**
+   * All minutes watched but Twitch neither offers the claim nor marks it
+   * earned — it is gated by something else (e.g. "Ultimate Reward" needs the
+   * other rewards first). Watching more does nothing, so it is not mined;
+   * a progress refresh claims it once Twitch makes it claimable.
+   */
+  private rewardLocked(entry: RewardQueueEntry, p: RewardProgress | undefined): boolean {
+    if (!p || p.status === "CLAIMABLE" || p.status === "CLAIMED") return false;
+    if (!(p.requiredMinutes > 0 && p.currentMinutes >= p.requiredMinutes)) return false;
+    return !(entry.repeatTimes && p.grantCount > 0);
   }
 
   /** Earliest time a queued reward may be mined again (0 = now). */

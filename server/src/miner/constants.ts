@@ -332,7 +332,7 @@ export interface RewardQueueEntry {
   preferredChannel?: string | null;
 }
 
-export type RewardQueueState = "mining" | "waiting" | "offline" | "paused" | "claimable";
+export type RewardQueueState = "mining" | "waiting" | "offline" | "paused" | "claimable" | "locked";
 
 export interface RewardQueueView extends RewardQueueEntry {
   currentMinutes: number;
