@@ -288,11 +288,14 @@ export function OverviewPage() {
                     description="Connect your Twitch account to load drop campaigns and start mining."
                   />
                 ) : live?.rewardMining ? (
-                  <RewardMiningPanel
-                    reward={live.rewardMining}
-                    queued={(live.rewardQueue?.length ?? 1) - 1}
-                    onOpen={() => navigate("/dashboard/rewards")}
-                  />
+                  <>
+                    <RewardMiningPanel
+                      reward={live.rewardMining}
+                      queued={(live.rewardQueue?.length ?? 1) - 1}
+                      onOpen={() => navigate("/dashboard/rewards")}
+                    />
+                    <AlsoEarning rewards={(live.rewardQueue ?? []).filter((q) => q.alongside)} />
+                  </>
                 ) : live?.state === "IDLE" ? (
                   <EmptyState
                     icon={Moon}
@@ -309,11 +312,14 @@ export function OverviewPage() {
                     }
                   />
                 ) : mining ? (
-                  <MiningPanel
-                    mining={mining}
-                    campaignRemainingSec={campaignRemainingSec}
-                    dropRemainingSec={dropRemainingSec}
-                  />
+                  <>
+                    <MiningPanel
+                      mining={mining}
+                      campaignRemainingSec={campaignRemainingSec}
+                      dropRemainingSec={dropRemainingSec}
+                    />
+                    <AlsoEarning rewards={(live?.rewardQueue ?? []).filter((q) => q.alongside)} />
+                  </>
                 ) : (
                   <EmptyState
                     icon={Clock3}
@@ -432,6 +438,39 @@ function MiningPanel({
         />
       </div>
     </>
+  );
+}
+
+/** Queued rewards the watched channel credits at the same time. */
+function AlsoEarning({ rewards }: { rewards: RewardQueueView[] }) {
+  if (rewards.length === 0) return null;
+  return (
+    <div className="space-y-2 border-t border-white/[0.05] pt-3">
+      <p className="text-2xs font-semibold uppercase tracking-micro text-muted-foreground">
+        Also earning on this channel
+      </p>
+      <div className="flex flex-wrap gap-2">
+        {rewards.map((r) => (
+          <div
+            key={r.id}
+            className="flex min-w-0 items-center gap-2 rounded-lg border border-white/[0.06] bg-white/[0.02] py-1.5 pl-1.5 pr-2.5"
+          >
+            <TwitchImage
+              src={r.rewardImageUrl}
+              alt={r.rewardName}
+              className="h-7 w-7 shrink-0 rounded-md bg-white/[0.04] object-contain p-0.5"
+              fallbackClassName="h-7 w-7 shrink-0 rounded-md bg-white/[0.05]"
+            />
+            <div className="min-w-0">
+              <p className="truncate text-xs font-medium">{r.rewardName}</p>
+              <p className="text-2xs tabular-nums text-muted-foreground">
+                {r.currentMinutes}/{r.requiredMinutes} min
+              </p>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
   );
 }
 

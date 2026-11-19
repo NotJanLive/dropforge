@@ -91,6 +91,7 @@ interface ActiveReward {
   channelLogin: string;
   broadcastId: string | null;
   gameName: string;
+  gameId: string;
   lastMinutes: number;
   stallTicks: number;
   watchFailures: number;
@@ -167,6 +168,11 @@ export class MinerWorker {
   private rewardClaimAttemptAt = new Map<string, number>();
   private lastRewardQueueRefresh = 0;
   private rewardProgressErrorAt = 0;
+  private rewardQueueApplying: Promise<void> | null = null;
+  private rewardQueueReapply = false;
+  /** Last minutes seen per reward credited alongside the watched channel. */
+  private alongsideMinutes = new Map<string, number>();
+  private lastAlongsideCheck = 0;
   private lastRewardHistorySync = 0;
   private rewardHistorySyncing = false;
 
@@ -1007,6 +1013,9 @@ export class MinerWorker {
     await this.maintainWatching();
     await this.refreshQueuedRewardProgress();
     await this.maintainReward();
+    if (!this.reward && this.watching && this.broadcastId && Date.now() - this.lastAlongsideCheck >= 60_000) {
+      await this.progressAlongside(null);
+    }
     await this.syncRewardHistory();
   }
 
@@ -2003,8 +2012,27 @@ export class MinerWorker {
   // watch. A pinned reward takes the watch slot from game drops until it is
   // earned, ends, or cannot be watched right now.
 
-  /** Reward queue or pin changed from the UI. */
-  async applyRewardQueue() {
+  /**
+   * Reward queue or pin changed from the UI. Rapid changes are coalesced:
+   * one run at a time, re-run once with the latest queue if more came in.
+   */
+  applyRewardQueue(): Promise<void> {
+    if (this.rewardQueueApplying) {
+      this.rewardQueueReapply = true;
+      return this.rewardQueueApplying;
+    }
+    this.rewardQueueApplying = (async () => {
+      do {
+        this.rewardQueueReapply = false;
+        await this.applyRewardQueueOnce();
+      } while (this.rewardQueueReapply && this.running);
+    })().finally(() => {
+      this.rewardQueueApplying = null;
+    });
+    return this.rewardQueueApplying;
+  }
+
+  private async applyRewardQueueOnce() {
     if (!this.running) return;
     const queue = this.settings.rewardQueue;
     rewardDirectory.track(queue.map((e) => e.channelId));
@@ -2036,7 +2064,8 @@ export class MinerWorker {
 
     const channelIds = [...new Set(queue.filter((e) => e.kind === "channel").map((e) => e.channelId))];
     if (channelIds.length > 0) await rewardDirectory.refreshChannels(channelIds);
-    await this.refreshQueuedRewardProgress(true);
+    // Only rewards we have no progress for yet — the rest is current.
+    await this.refreshQueuedRewardProgress(true, true);
 
     const pinned = queue.find((e) => e.id === this.settings.pinnedRewardId);
     if (pinned && this.reward?.entry.id !== pinned.id) {
@@ -2050,9 +2079,13 @@ export class MinerWorker {
 
   private rewardViews(): RewardQueueView[] {
     const now = Date.now();
+    const ctx = this.watchContext();
+    const alongsideIds = new Set(this.alongsideRewards().map((e) => e.id));
     return this.settings.rewardQueue.map((e) => {
       const p = this.rewardProgress.get(e.id);
-      const mining = this.reward?.entry.id === e.id;
+      const primary = this.reward?.entry.id === e.id;
+      const alongside = !primary && alongsideIds.has(e.id);
+      const mining = primary || alongside;
       const live =
         mining || (e.kind === "channel" ? rewardDirectory.isLive(e.channelId) === true : true);
       const cooldown = mining ? 0 : this.rewardWaitUntil(e, now);
@@ -2072,10 +2105,12 @@ export class MinerWorker {
         live,
         pinned: this.settings.pinnedRewardId === e.id,
         watchingChannel: mining
-          ? this.reward!.channelLogin
+          ? ctx?.login ?? null
           : e.kind === "channel"
             ? e.channelLogin
             : null,
+        alongside,
+        twitchStatus: p?.status ?? null,
       };
     });
   }
@@ -2155,6 +2190,13 @@ export class MinerWorker {
         }
       }
       if (entry.kind === "category" && !login) {
+        const combo = await this.findComboChannel(entry);
+        if (combo) {
+          channelId = combo.channelId;
+          login = combo.login;
+        }
+      }
+      if (entry.kind === "category" && !login) {
         const found = await findCategoryChannel(entry.categoryIds);
         if (!found) {
           this.coolDownReward(entry, 10 * 60 * 1000);
@@ -2194,6 +2236,7 @@ export class MinerWorker {
         channelLogin: login,
         broadcastId: info.broadcastId,
         gameName: info.gameName,
+        gameId: info.gameId,
         lastMinutes: progress?.currentMinutes ?? -1,
         stallTicks: 0,
         watchFailures: 0,
@@ -2241,6 +2284,7 @@ export class MinerWorker {
       }
       r.broadcastId = info.broadcastId;
       r.gameName = info.gameName;
+      r.gameId = info.gameId;
       if (!this.rewardCategoryOk(entry, info.gameId)) {
         if (entry.kind === "channel") this.coolDownReward(entry, REWARD_COOLDOWN_MS);
         this.stopReward(
@@ -2277,6 +2321,8 @@ export class MinerWorker {
       }
 
       await this.fetchRewardProgressFor(entry);
+      if (this.reward !== r) return;
+      await this.progressAlongside(entry);
       if (this.reward !== r) return;
       const p = this.rewardProgress.get(entry.id);
 
@@ -2323,6 +2369,107 @@ export class MinerWorker {
     }
   }
 
+  /** Channel being watched right now, for a reward or for game drops. */
+  private watchContext(): { channelId: string; login: string; gameId: string } | null {
+    if (this.reward?.broadcastId) {
+      return { channelId: this.reward.channelId, login: this.reward.channelLogin, gameId: this.reward.gameId };
+    }
+    if (this.watching && this.broadcastId) {
+      return { channelId: this.watching.id, login: this.watching.login, gameId: this.watching.gameId ?? "" };
+    }
+    return null;
+  }
+
+  /**
+   * Queued rewards the watched channel credits as well: creator badges of
+   * that channel and reward campaigns whose categories include its game
+   * (e.g. Pokémon counts any Just Chatting stream). Twitch credits all of
+   * them at once, so they are tracked and claimed in parallel.
+   */
+  private alongsideRewards(): RewardQueueEntry[] {
+    const ctx = this.watchContext();
+    if (!ctx || !ctx.channelId) return [];
+    const now = Date.now();
+    return this.settings.rewardQueue.filter((e) => {
+      if (e.id === this.reward?.entry.id) return false;
+      if (e.endsAt && Date.parse(e.endsAt) <= now) return false;
+      if (this.rewardDone(e)) return false;
+      const p = this.rewardProgress.get(e.id);
+      if (p?.status === "CLAIMABLE") return true;
+      if (this.rewardLocked(e, p)) return false;
+      if (p && this.roundWaitUntil(e, p, now) > 0) return false;
+      if (e.kind === "channel") return e.channelId === ctx.channelId;
+      return e.categoryIds.length === 0 || (Boolean(ctx.gameId) && e.categoryIds.includes(ctx.gameId));
+    });
+  }
+
+  /**
+   * Check progress of everything credited alongside the current watch:
+   * claim what is ready, log credited minutes, settle finished rounds.
+   * `primary` is the reward being mined (its progress is already loaded).
+   */
+  private async progressAlongside(primary: RewardQueueEntry | null) {
+    this.lastAlongsideCheck = Date.now();
+    const riders = this.alongsideRewards();
+    if (riders.length === 0) return;
+    const key = (e: RewardQueueEntry) => (e.kind === "channel" ? `c:${e.channelId}` : `k:${e.campaignId}`);
+    const done = new Set<string>(primary ? [key(primary)] : []);
+    for (const e of riders) {
+      if (done.has(key(e))) continue;
+      done.add(key(e));
+      await this.fetchRewardProgressFor(e);
+    }
+    const credited: string[] = [];
+    for (const e of riders) {
+      const p = this.rewardProgress.get(e.id);
+      if (!p) continue;
+      if (p.status === "CLAIMABLE") {
+        await this.claimQueuedReward(e);
+        continue;
+      }
+      if (this.settleReward(e)) continue;
+      const before = this.alongsideMinutes.get(e.id);
+      if (before !== undefined && p.currentMinutes > before) {
+        credited.push(`${e.rewardName} (${p.currentMinutes}/${e.requiredMinutes})`);
+      }
+      this.alongsideMinutes.set(e.id, p.currentMinutes);
+    }
+    if (credited.length > 0) {
+      this.addLog("success", `Also credited: ${credited.join(", ")}`);
+    }
+  }
+
+  /**
+   * For a reward campaign on auto channel: a live queued creator badge
+   * channel streaming one of its categories, so both progress at once.
+   */
+  private async findComboChannel(
+    entry: RewardQueueEntry
+  ): Promise<{ channelId: string; login: string } | null> {
+    const now = Date.now();
+    const candidates = this.settings.rewardQueue.filter(
+      (e) =>
+        e.kind === "channel" &&
+        e.channelLogin &&
+        rewardDirectory.isLive(e.channelId) === true &&
+        !this.rewardDone(e) &&
+        !this.rewardLocked(e, this.rewardProgress.get(e.id)) &&
+        this.rewardWaitUntil(e, now) === 0
+    );
+    for (const c of candidates.slice(0, 5)) {
+      try {
+        const info = await fetchStreamInfo(this.auth, c.channelLogin);
+        if (info.online && info.broadcastId && this.rewardCategoryOk(entry, info.gameId)) {
+          this.addLog("info", `${c.channelLogin} streams ${info.gameName} — mining "${entry.rewardName}" there together with "${c.rewardName}"`);
+          return { channelId: info.channelId ?? c.channelId, login: c.channelLogin };
+        }
+      } catch {
+        /* try the next one */
+      }
+    }
+    return null;
+  }
+
   /**
    * Handle a reward that cannot progress right now: earned for good → drop
    * it; repeatable and waiting for its next window → pause until then.
@@ -2340,7 +2487,7 @@ export class MinerWorker {
         this.rewardRoundLogged.set(entry.id, -1);
         this.addLog(
           "info",
-          `"${entry.rewardName}" has all minutes but Twitch has not unlocked it yet (it likely needs other rewards first) — not mining it`
+          `"${entry.rewardName}" has all minutes but Twitch has not unlocked it yet (status ${p.status}; it likely needs other rewards first) — not mining it`
         );
       }
       if (this.reward?.entry.id === entry.id) this.stopReward();
@@ -2438,7 +2585,7 @@ export class MinerWorker {
   }
 
   /** Periodic progress check for queued rewards; claims any that are ready. */
-  private async refreshQueuedRewardProgress(force = false) {
+  private async refreshQueuedRewardProgress(force = false, onlyMissing = false) {
     const queue = this.settings.rewardQueue;
     if (queue.length === 0) return;
     const now = Date.now();
@@ -2451,6 +2598,7 @@ export class MinerWorker {
       if (seen.has(key)) continue;
       seen.add(key);
       if (!force && this.reward?.entry.id === e.id) continue;
+      if (onlyMissing && this.rewardProgress.has(e.id)) continue;
       try {
         await this.fetchRewardProgressFor(e);
       } catch {

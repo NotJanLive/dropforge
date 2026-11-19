@@ -217,6 +217,8 @@ export interface RewardQueueView {
   pinned: boolean;
   watchingChannel: string | null;
   preferredChannel?: string | null;
+  alongside?: boolean;
+  twitchStatus?: string | null;
 }
 
 export interface RewardScanInfo {
@@ -404,7 +406,7 @@ export const api = {
       body: JSON.stringify({ id, channel }),
     }),
   updateRewardQueue: (queue: string[], pinnedId: string | null) =>
-    request<{ ok: boolean; status: MinerStatus | null }>("/api/twitch/miner/rewards", {
+    request<{ ok: boolean; skipped: number; status: MinerStatus | null }>("/api/twitch/miner/rewards", {
       method: "PUT",
       body: JSON.stringify({ queue, pinnedId }),
     }),

@@ -405,6 +405,19 @@ class RewardDirectory {
     };
   }
 
+  /**
+   * Like `entry`, but loads the channel's login/avatar first if a creator
+   * badge was found before its channel details were known.
+   */
+  async resolveEntry(id: string): Promise<RewardQueueEntry | null> {
+    const ready = this.entry(id);
+    if (ready) return ready;
+    const stored = this.campaigns.get(id.split(":")[0]);
+    if (!stored?.channelId) return null;
+    await this.refreshChannels([stored.channelId]);
+    return this.entry(id);
+  }
+
   /** Live state from the last scan or refresh; undefined if never seen. */
   isLive(channelId: string): boolean | undefined {
     return this.channels.get(channelId)?.live;

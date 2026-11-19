@@ -383,7 +383,10 @@ export class MinerManager {
         pinnedRewardId: merged.pinnedRewardId,
       });
       if (rewardsChanged) {
-        await worker.applyRewardQueue();
+        // The queue is saved and visible in the status right away; switching
+        // channels and loading progress can take a while, so it runs in the
+        // background instead of holding up the request.
+        void worker.applyRewardQueue().catch(() => undefined);
       }
       if (rulesChanged) {
         await worker.applyMiningRules();

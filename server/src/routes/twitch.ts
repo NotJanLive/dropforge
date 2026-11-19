@@ -235,17 +235,19 @@ router.put("/miner/rewards", requireUser, async (req, res) => {
     minerManager.getRewardSettings(user.id).rewardQueue.map((e) => [e.id, e] as const)
   );
   const entries: RewardQueueEntry[] = [];
+  let skipped = 0;
   for (const raw of queue) {
     const id = String(raw);
     const known = current.get(id);
-    const fresh = rewardDirectory.entry(id);
+    const fresh = known ? rewardDirectory.entry(id) : await rewardDirectory.resolveEntry(id);
     // Keep the user's channel pick when the snapshot is refreshed.
     const entry = fresh ? { ...fresh, preferredChannel: known?.preferredChannel ?? null } : known;
     if (entry) entries.push(entry);
+    else skipped++;
   }
   const pinned = typeof pinnedId === "string" && pinnedId ? pinnedId : null;
   await minerManager.updateRewardQueue(user.id, entries, pinned);
-  res.json({ ok: true, status: minerManager.getStatus(user.id) });
+  res.json({ ok: true, skipped, status: minerManager.getStatus(user.id) });
 });
 
 router.get("/rewards/channels", requireUser, async (req, res) => {

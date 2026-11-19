@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowDown,
   ArrowUp,
@@ -81,10 +81,29 @@ export function RewardsPage() {
   const [lookingUp, setLookingUp] = useState(false);
   const [feedback, setFeedback] = useState<Feedback>(null);
 
-  const live = wsStatus ?? status;
+  // Newest of the websocket push and the last request's answer.
+  const live =
+    wsStatus && status
+      ? Date.parse(wsStatus.updatedAt) >= Date.parse(status.updatedAt)
+        ? wsStatus
+        : status
+      : wsStatus ?? status;
   const queue = live?.rewardQueue ?? [];
-  const pinnedId = live?.pinnedRewardId ?? null;
-  const queuedIds = useMemo(() => new Set(queue.map((q) => q.id)), [queue]);
+  const serverPinnedId = live?.pinnedRewardId ?? null;
+
+  // Queue edits are applied locally at once and sent one after another, each
+  // carrying the latest local state — quick clicks can no longer overwrite
+  // each other or bring back a reward the miner just removed.
+  const pendingRef = useRef(0);
+  const [pending, setPending] = useState(0);
+  const [local, setLocal] = useState<{ ids: string[]; pin: string | null } | null>(null);
+  const localRef = useRef<{ ids: string[]; pin: string | null }>({ ids: [], pin: null });
+  const chainRef = useRef<Promise<void>>(Promise.resolve());
+  const serverIds = useMemo(() => queue.map((q) => q.id), [queue]);
+  if (pending === 0) localRef.current = { ids: serverIds, pin: serverPinnedId };
+  const ids = local?.ids ?? serverIds;
+  const pinnedId = local ? local.pin : serverPinnedId;
+  const queuedIds = useMemo(() => new Set(ids), [ids]);
 
   const load = async () => {
     setLoading(true);
@@ -118,24 +137,46 @@ export function RewardsPage() {
     return () => clearTimeout(t);
   }, [feedback]);
 
-  const save = async (ids: string[], pin: string | null, key: string) => {
+  const mutate = (
+    key: string,
+    change: (ids: string[], pin: string | null) => { ids: string[]; pin: string | null }
+  ) => {
+    const next = change(localRef.current.ids, localRef.current.pin);
+    localRef.current = next;
+    setLocal(next);
     setSaving(key);
-    try {
-      const r = await api.updateRewardQueue(ids, pin);
-      if (r.status) setStatus(r.status);
-    } catch (err) {
-      setFeedback({ type: "error", message: err instanceof Error ? err.message : "Failed to update queue" });
-    } finally {
-      setSaving(null);
-    }
+    pendingRef.current += 1;
+    setPending(pendingRef.current);
+    chainRef.current = chainRef.current.then(async () => {
+      try {
+        const { ids: sendIds, pin } = localRef.current;
+        const r = await api.updateRewardQueue(sendIds, pin);
+        if (r.status) setStatus(r.status);
+        if (r.skipped > 0) {
+          setFeedback({
+            type: "error",
+            message: "Some rewards could not be queued — the campaign may have just ended. Press Refresh and try again.",
+          });
+        }
+      } catch (err) {
+        setFeedback({ type: "error", message: err instanceof Error ? err.message : "Failed to update queue" });
+      } finally {
+        pendingRef.current -= 1;
+        setPending(pendingRef.current);
+        if (pendingRef.current === 0) {
+          setLocal(null);
+          setSaving(null);
+        }
+      }
+    });
   };
 
-  const ids = queue.map((q) => q.id);
-  const addToQueue = (id: string) => save([...ids, id], pinnedId, id);
+  const addToQueue = (id: string) =>
+    mutate(id, (cur, pin) => ({ ids: cur.includes(id) ? cur : [...cur, id], pin }));
   const togglePin = (id: string) =>
-    save(queuedIds.has(id) ? ids : [id, ...ids], pinnedId === id ? null : id, id);
+    mutate(id, (cur, pin) => ({ ids: cur.includes(id) ? cur : [id, ...cur], pin: pin === id ? null : id }));
   const removeFromQueue = (id: string) =>
-    save(ids.filter((x) => x !== id), pinnedId === id ? null : pinnedId, id);
+    mutate(id, (cur, pin) => ({ ids: cur.filter((x) => x !== id), pin: pin === id ? null : pin }));
   const pickChannel = async (id: string, channel: string | null) => {
     setSaving(id);
     try {
@@ -147,14 +188,24 @@ export function RewardsPage() {
       setSaving(null);
     }
   };
-  const move = (id: string, delta: number) => {
-    const i = ids.indexOf(id);
-    const j = i + delta;
-    if (i < 0 || j < 0 || j >= ids.length) return;
-    const next = [...ids];
-    [next[i], next[j]] = [next[j], next[i]];
-    void save(next, pinnedId, id);
-  };
+  const move = (id: string, delta: number) =>
+    mutate(id, (cur, pin) => {
+      const i = cur.indexOf(id);
+      const j = i + delta;
+      if (i < 0 || j < 0 || j >= cur.length) return { ids: cur, pin };
+      const next = [...cur];
+      [next[i], next[j]] = [next[j], next[i]];
+      return { ids: next, pin };
+    });
+
+  // Queue rows in the locally edited order (server data per row).
+  const queueRows = useMemo(() => {
+    const byId = new Map(queue.map((q) => [q.id, q]));
+    return ids
+      .map((id) => byId.get(id))
+      .filter((q): q is RewardQueueView => Boolean(q))
+      .map((q) => ({ ...q, pinned: q.id === pinnedId }));
+  }, [queue, ids, pinnedId]);
 
   const lookup = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -342,14 +393,14 @@ export function RewardsPage() {
             <CardHeader className="shrink-0 gap-1.5 border-b border-white/[0.05] pb-3">
               <div className="flex items-center justify-between gap-2">
                 <CardTitle className="text-sm">Your reward queue</CardTitle>
-                <Badge variant={queue.length ? "primary" : "neutral"}>{queue.length}</Badge>
+                <Badge variant={ids.length ? "primary" : "neutral"}>{ids.length}</Badge>
               </div>
               <p className="text-2xs text-muted-foreground">
                 Mined top to bottom · earned rewards are claimed and removed
               </p>
             </CardHeader>
             <CardContent className="scroll-slim space-y-2 p-3 lg:min-h-0 lg:flex-1 lg:overflow-y-auto">
-              {queue.length === 0 && (
+              {queueRows.length === 0 && ids.length === 0 && (
                 <EmptyState
                   compact
                   icon={ListPlus}
@@ -357,12 +408,12 @@ export function RewardsPage() {
                   description="Queue rewards from the list to mine them when no game drop is running."
                 />
               )}
-              {queue.map((q, i) => (
+              {queueRows.map((q, i) => (
                 <QueueRow
                   key={q.id}
                   item={q}
                   first={i === 0}
-                  last={i === queue.length - 1}
+                  last={i === queueRows.length - 1}
                   busy={saving === q.id}
                   onPin={() => togglePin(q.id)}
                   onUp={() => move(q.id, -1)}
@@ -625,8 +676,12 @@ function QueueRow({
             {where}
           </p>
         </div>
-        <Badge variant={stateVariant[item.state]} className="shrink-0">
-          {stateLabel[item.state]}
+        <Badge
+          variant={stateVariant[item.state]}
+          className="shrink-0"
+          title={item.twitchStatus ? `Twitch status: ${item.twitchStatus}` : undefined}
+        >
+          {item.alongside ? "Mining · parallel" : stateLabel[item.state]}
         </Badge>
       </div>
 
@@ -654,7 +709,7 @@ function QueueRow({
               : item.state === "paused" && item.repeatTimes
                 ? "next round pending"
                 : item.state === "locked"
-                  ? "needs other rewards first"
+                  ? `locked by Twitch (${item.twitchStatus ?? "unknown"})`
                 : item.endsAt
                 ? formatEndsIn(item.endsAt)
                 : ""}

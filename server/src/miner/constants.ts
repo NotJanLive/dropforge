@@ -344,6 +344,10 @@ export interface RewardQueueView extends RewardQueueEntry {
   pinned: boolean;
   /** Channel watched for it right now (category rewards pick one themselves). */
   watchingChannel: string | null;
+  /** Credited in parallel by the channel being watched for something else. */
+  alongside: boolean;
+  /** Raw self status from Twitch (e.g. IN_PROGRESS, CLAIMABLE, CLAIMED). */
+  twitchStatus: string | null;
 }
 
 export function topicStr(category: "User" | "Channel", name: string, id: string | number): string {
