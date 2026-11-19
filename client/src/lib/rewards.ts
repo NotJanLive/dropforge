@@ -58,17 +58,21 @@ export function rewardImage(r: RewardItem | undefined): string {
   return r.imageUrl;
 }
 
+function resetText(seconds: number | null): string {
+  if (!seconds) return "";
+  if (seconds % 86_400 === 0) return seconds === 86_400 ? "once a day" : `every ${seconds / 86_400} days`;
+  if (seconds % 3_600 === 0) return seconds === 3_600 ? "once an hour" : `every ${seconds / 3_600} h`;
+  return `every ${Math.round(seconds / 60)} min`;
+}
+
 export function requirementText(g: RewardGroupInfo): string {
   if (g.requirementType === "WATCH") {
     let text = `Watch ${formatWatchTime(g.minutesWatched)}`;
     if (g.repeatTimes) {
-      const every =
-        g.resetSeconds && g.resetSeconds >= 86_400 && g.resetSeconds % 86_400 === 0
-          ? g.resetSeconds === 86_400
-            ? " · daily"
-            : ` · every ${g.resetSeconds / 86_400} days`
-          : "";
-      text += ` · up to ${g.repeatTimes}×${every}`;
+      const every = resetText(g.resetSeconds);
+      text += g.completeAllRepeats
+        ? ` · ${g.repeatTimes} rounds${every ? `, ${every}` : ""}, all needed`
+        : ` · earn up to ${g.repeatTimes}×${every ? `, ${every}` : ""}`;
     }
     return text;
   }

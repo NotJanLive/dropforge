@@ -35,6 +35,7 @@ import {
   type RewardGroupInfo,
   type RewardKind,
   type RewardQueueState,
+  type RewardAvailability,
   type RewardQueueView,
   type RewardScanInfo,
 } from "@/lib/api";
@@ -152,10 +153,15 @@ export function RewardsPage() {
         const { ids: sendIds, pin } = localRef.current;
         const r = await api.updateRewardQueue(sendIds, pin);
         if (r.status) setStatus(r.status);
-        if (r.skipped > 0) {
+        if (r.rejected?.length) {
           setFeedback({
             type: "error",
-            message: "Some rewards could not be queued — the campaign may have just ended. Press Refresh and try again.",
+            message: r.rejected.map((x) => `"${x.name}" can't be queued: ${x.reason}.`).join(" "),
+          });
+        } else if (r.skipped > 0) {
+          setFeedback({
+            type: "error",
+            message: "Some rewards could not be queued. The campaign may have just ended. Press Refresh and try again.",
           });
         }
       } catch (err) {
@@ -329,8 +335,8 @@ export function RewardsPage() {
               </div>
               <p className="text-2xs text-muted-foreground">
                 {tab === "category"
-                  ? "Global campaigns without a game — watch time counts on any channel in the listed categories."
-                  : "Channel-owned badge drops — watch time counts only on that channel."}{" "}
+                  ? "Global campaigns without a game. Watch time counts on any channel in the listed categories."
+                  : "Channel-owned badge drops. Watch time counts only on that channel."}{" "}
                 {scanHint}
               </p>
               <div className={cn("grid gap-2", tab === "channel" && "sm:grid-cols-2")}>
@@ -533,6 +539,7 @@ function CampaignCard({
         {campaign.groups.map((g) => (
           <GroupRow
             key={g.id}
+            campaign={campaign}
             group={g}
             queued={queuedIds.has(g.id)}
             pinned={pinnedId === g.id}
@@ -546,7 +553,20 @@ function CampaignCard({
   );
 }
 
+const availabilityChip: Record<
+  RewardAvailability,
+  { label: string; variant: "success" | "primary" | "neutral" | "warning" | "info" | "outline" }
+> = {
+  available: { label: "Not started", variant: "outline" },
+  progress: { label: "In progress", variant: "primary" },
+  claimable: { label: "Ready to claim", variant: "info" },
+  roundDone: { label: "Round done", variant: "warning" },
+  locked: { label: "Locked", variant: "neutral" },
+  earned: { label: "Earned", variant: "success" },
+};
+
 function GroupRow({
+  campaign,
   group,
   queued,
   pinned,
@@ -554,6 +574,7 @@ function GroupRow({
   onQueue,
   onPin,
 }: {
+  campaign: RewardCampaign;
   group: RewardGroupInfo;
   queued: boolean;
   pinned: boolean;
@@ -565,9 +586,36 @@ function GroupRow({
   const pool = group.rewards.flatMap((r) => r.pool);
   const title = main?.name || group.name;
   const art = pool.length > 1 ? pool.slice(0, 4) : null;
+  const self = group.self;
+  const blocked = self?.availability === "earned" || self?.availability === "locked";
+  const cats = campaign.kind === "category" ? campaign.categoryNames : [];
+
+  const details: string[] = [];
+  if (group.requirementType === "WATCH") {
+    if (campaign.kind === "channel") {
+      details.push(`Only on ${campaign.channel?.displayName || campaign.channel?.login || "this channel"}'s stream`);
+    } else if (cats.length > 0) {
+      details.push(
+        `Any channel streaming ${cats.length > 4 ? `${cats.slice(0, 4).join(", ")} or ${cats.length - 4} more` : cats.join(" or ")}`
+      );
+    } else {
+      details.push("Any channel");
+    }
+  }
+  if (!group.autoProgress) {
+    details.push(
+      group.laneSiblings.length > 0
+        ? `Unlocks only after the earlier stage, part of a line with ${group.laneSiblings.join(", ")}`
+        : "Unlocks only after other rewards, watching alone is not enough"
+    );
+  }
+  if (pool.length > 0) {
+    details.push(`Chest with ${pool.map((p) => p.name).join(", ")}`);
+  }
+
   return (
-    <div className={cn("flex flex-col gap-2.5 p-3 sm:flex-row sm:items-center", !group.mineable && "opacity-60")}>
-      <div className="flex min-w-0 flex-1 items-center gap-3">
+    <div className={cn("flex flex-col gap-2.5 p-3 sm:flex-row sm:items-center", (!group.mineable || blocked) && "opacity-60")}>
+      <div className="flex min-w-0 flex-1 items-start gap-3">
         {art ? (
           <div className="grid h-10 w-10 shrink-0 grid-cols-2 gap-0.5 rounded-lg bg-white/[0.04] p-0.5 ring-1 ring-inset ring-white/10">
             {art.map((p, i) => (
@@ -586,38 +634,62 @@ function GroupRow({
           </p>
           <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
             <TypeChips types={groupRewardTypes(group.rewards)} />
-            <span className="text-2xs text-muted-foreground">{requirementText(group)}</span>
+            {self && (
+              <Badge variant={availabilityChip[self.availability].variant} title={`Twitch status: ${self.status}`}>
+                {availabilityChip[self.availability].label}
+                {(self.availability === "progress" || self.availability === "roundDone") &&
+                  ` · ${self.currentMinutes}/${self.requiredMinutes} min`}
+                {group.repeatTimes && self.grantCount > 0 && ` · ${self.grantCount}/${group.repeatTimes}`}
+              </Badge>
+            )}
           </div>
+          <p className="text-2xs font-medium text-foreground/80">{requirementText(group)}</p>
+          {details.map((d) => (
+            <p key={d} className="text-2xs leading-snug text-muted-foreground">
+              {d}
+            </p>
+          ))}
+          {self?.availability === "roundDone" && self.resumeAt && (
+            <p className="text-2xs text-warning">
+              Next round {new Date(self.resumeAt).toLocaleString([], { weekday: "short", hour: "2-digit", minute: "2-digit" })}
+            </p>
+          )}
         </div>
       </div>
       {group.mineable ? (
-        <div className="flex shrink-0 gap-2">
-          <Button
-            size="sm"
-            variant={queued ? "success" : "secondary"}
-            className="max-sm:flex-1"
-            disabled={queued || busy}
-            loading={busy && !queued}
-            onClick={onQueue}
-          >
-            {queued ? <Check className="h-4 w-4" /> : !busy && <ListPlus className="h-4 w-4" />}
-            {queued ? "Queued" : "Queue"}
-          </Button>
-          <Button
-            size="sm"
-            variant={pinned ? "accent" : "outline"}
-            className="max-sm:flex-1"
-            disabled={busy}
-            onClick={onPin}
-            title={pinned ? "Unpin" : "Pin — mine before game drops"}
-          >
-            {pinned ? <PinOff className="h-4 w-4" /> : <Pin className="h-4 w-4" />}
-            {pinned ? "Pinned" : "Pin"}
-          </Button>
-        </div>
+        blocked ? (
+          <Badge variant="outline" className="shrink-0 self-start sm:self-center">
+            {self?.availability === "earned" ? "Already earned" : "Can't be mined yet"}
+          </Badge>
+        ) : (
+          <div className="flex shrink-0 gap-2">
+            <Button
+              size="sm"
+              variant={queued ? "success" : "secondary"}
+              className="max-sm:flex-1"
+              disabled={queued || busy}
+              loading={busy && !queued}
+              onClick={onQueue}
+            >
+              {queued ? <Check className="h-4 w-4" /> : !busy && <ListPlus className="h-4 w-4" />}
+              {queued ? "Queued" : "Queue"}
+            </Button>
+            <Button
+              size="sm"
+              variant={pinned ? "accent" : "outline"}
+              className="max-sm:flex-1"
+              disabled={busy}
+              onClick={onPin}
+              title={pinned ? "Unpin" : "Pin: mine before game drops"}
+            >
+              {pinned ? <PinOff className="h-4 w-4" /> : <Pin className="h-4 w-4" />}
+              {pinned ? "Pinned" : "Pin"}
+            </Button>
+          </div>
+        )
       ) : (
         <Badge variant="outline" className="shrink-0 self-start sm:self-center">
-          Can't be mined
+          {group.requirementType === "SUB" ? "Needs subs, can't be mined" : "Can't be mined"}
         </Badge>
       )}
     </div>
@@ -797,7 +869,7 @@ function ChannelPicker({
       </Select>
       {fallback && (
         <p className="text-2xs text-warning">
-          {value} can't be watched right now — using {watching} until it is back
+          {value} can't be watched right now, using {watching} until it is back
         </p>
       )}
     </div>

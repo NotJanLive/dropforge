@@ -330,6 +330,23 @@ export interface RewardQueueEntry {
   poolItems?: Array<{ name: string; imageUrl: string }>;
   /** Reward campaigns only: channel login picked by the user (null = auto). */
   preferredChannel?: string | null;
+  /** false = Twitch only lets it progress after another reward (e.g. an evolution). */
+  autoProgress?: boolean;
+  /** Repeatable that is only earned once all repeats are done. */
+  completeAllRepeats?: boolean;
+}
+
+/** The user's standing on one reward, for listing and queue checks. */
+export type RewardAvailability = "available" | "progress" | "claimable" | "roundDone" | "locked" | "earned";
+
+export interface RewardSelf {
+  availability: RewardAvailability;
+  currentMinutes: number;
+  requiredMinutes: number;
+  grantCount: number;
+  /** When a finished round opens again (roundDone). */
+  resumeAt: string | null;
+  status: string;
 }
 
 export type RewardQueueState = "mining" | "waiting" | "offline" | "paused" | "claimable" | "locked";

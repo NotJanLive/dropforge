@@ -239,7 +239,7 @@ export function UsersPage() {
                 )}
 
                 {createdInfo && (
-                  <Alert tone="success" title={`Account created — ${createdInfo.username}`}>
+                  <Alert tone="success" title={`Account created: ${createdInfo.username}`}>
                     <span className="mt-1 flex flex-wrap items-center gap-2">
                       Password: <SecretValue value={createdInfo.password} />
                     </span>
@@ -314,7 +314,7 @@ export function UsersPage() {
               <EmptyState
                 icon={UsersIcon}
                 title="No miner accounts yet"
-                description="Create the first account on the left — the user links their own Twitch profile after signing in."
+                description="Create the first account on the left, the user links their own Twitch profile after signing in."
               />
             )}
 

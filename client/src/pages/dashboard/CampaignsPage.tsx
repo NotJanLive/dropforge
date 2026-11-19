@@ -73,7 +73,7 @@ export function CampaignsPage() {
       setSettingsLoaded(true);
       setFeedback({
         type: "success",
-        message: `Refreshed — ${c.campaigns.length} campaigns from Twitch.`,
+        message: `Refreshed: ${c.campaigns.length} campaigns from Twitch.`,
       });
     } catch (err) {
       setFeedback({
@@ -114,7 +114,7 @@ export function CampaignsPage() {
     try {
       await api.updateMinerSettings({ priorityGames, excludeGames, priorityMode });
       setDirty(false);
-      setFeedback({ type: "success", message: "Drop lists saved — miner updated." });
+      setFeedback({ type: "success", message: "Drop lists saved, miner updated." });
     } catch (err) {
       setFeedback({
         type: "error",
@@ -233,7 +233,7 @@ export function CampaignsPage() {
               </Badge>
             </div>
             <CardDescription className="text-xs">
-              Games with drop campaigns on Twitch — read-only overview
+              Games with drop campaigns on Twitch, read-only overview
             </CardDescription>
           </CardHeader>
 

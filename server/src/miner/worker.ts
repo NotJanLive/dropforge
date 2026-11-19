@@ -17,8 +17,10 @@ import {
   INVENTORY_MAINTENANCE_MS,
   IDLE_INVENTORY_REFRESH_MS,
   MAX_MINER_LOGS,
+  type RewardAvailability,
   type RewardHistoryEntry,
   type RewardQueueEntry,
+  type RewardSelf,
   type RewardQueueState,
   type RewardQueueView,
 } from "./constants.js";
@@ -69,6 +71,8 @@ export interface MinerSettings {
 }
 
 const MAX_REWARD_HISTORY = 300;
+/** Watching a stuck repeatable this long without change = really locked. */
+const LOCK_PROBE_MS = 10 * 60 * 1000;
 /** How often earned rewards are synced from Twitch into the history. */
 const REWARD_HISTORY_SYNC_MS = 30 * 60 * 1000;
 /** How often a reward running on a fallback channel re-checks the user's pick. */
@@ -165,6 +169,10 @@ export class MinerWorker {
   private rewardCooldownUntil = new Map<string, number>();
   /** Last "round done" time logged per reward, so it is logged once. */
   private rewardRoundLogged = new Map<string, number>();
+  /** Repeatables at full minutes being watched: minutes seen and since when. */
+  private lockProbe = new Map<string, { minutes: number; since: number }>();
+  /** Repeatables confirmed locked, at the minutes they were stuck on. */
+  private lockConfirmed = new Map<string, number>();
   private rewardClaimAttemptAt = new Map<string, number>();
   private lastRewardQueueRefresh = 0;
   private rewardProgressErrorAt = 0;
@@ -174,6 +182,9 @@ export class MinerWorker {
   private alongsideMinutes = new Map<string, number>();
   private lastAlongsideCheck = 0;
   private lastRewardHistorySync = 0;
+  /** Progress on every known reward campaign, from the last history sync. */
+  private directoryProgress = new Map<string, Map<string, RewardProgress>>();
+  private directoryProgressAt = 0;
   private rewardHistorySyncing = false;
 
   constructor(
@@ -314,7 +325,7 @@ export class MinerWorker {
         this.unlistedCampaignId = focusedId;
         this.addLog(
           "info",
-          `Twitch does not list "${focused[0].name}" on any channel — using drops-enabled directory results`
+          `Twitch does not list "${focused[0].name}" on any channel, using drops-enabled directory results`
         );
       }
     } else if (confirmed > 0 && focusedId !== null && this.unlistedCampaignId === focusedId) {
@@ -358,7 +369,7 @@ export class MinerWorker {
       this.settings.activeCampaignId &&
       !this.miningCampaigns.some((c) => c.id === this.settings.activeCampaignId)
     ) {
-      this.addLog("warn", "Pinned campaign is no longer available — using priority");
+      this.addLog("warn", "Pinned campaign is no longer available, using priority");
       this.clearPinnedCampaign();
     }
   }
@@ -391,14 +402,14 @@ export class MinerWorker {
     this.enforceDropListOnWatch();
 
     if (this.allCampaigns.length === 0) {
-      this.addLog("info", "Drop lists saved — use Reload miner to fetch campaigns from Twitch");
+      this.addLog("info", "Drop lists saved, use Reload miner to fetch campaigns from Twitch");
       this.emit();
       return;
     }
 
     if (this.miningCampaigns.length === 0) {
       this.channels = [];
-      this.clearWatchSession("Drop lists updated — no campaigns to mine");
+      this.clearWatchSession("Drop lists updated, no campaigns to mine");
       this.enterIdleState(true);
       this.emit();
       return;
@@ -407,7 +418,7 @@ export class MinerWorker {
     const gameCount = new Set(this.miningCampaigns.map((c) => c.gameName)).size;
     this.addLog(
       "info",
-      `Drop lists applied — ${gameCount} game(s), ${this.miningCampaigns.length} campaign(s)`
+      `Drop lists applied, ${gameCount} game(s), ${this.miningCampaigns.length} campaign(s)`
     );
 
     const nextFocusedId = this.resolveFocusedCampaign()?.id ?? null;
@@ -439,7 +450,7 @@ export class MinerWorker {
     this.applyInventoryList(quick);
 
     if (this.miningCampaigns.length > prevMiningCount && !this.watching) {
-      await this.resumeMiningIfEligible("New campaigns available — starting mining");
+      await this.resumeMiningIfEligible("New campaigns available, starting mining");
     } else if (this.miningCampaigns.length > 0 && wasWatching) {
       if (!this.watching || !this.broadcastId) {
         await this.maintainWatching();
@@ -600,7 +611,7 @@ export class MinerWorker {
     this.untrackedSessionDropIds.add(dropId);
     this.addLog(
       "info",
-      `Twitch is crediting drop ${dropId} (${currentMinutes}/${requiredMinutes} min) from a campaign that is not in your inventory — showing the focused campaign instead`
+      `Twitch is crediting drop ${dropId} (${currentMinutes}/${requiredMinutes} min) from a campaign that is not in your inventory, showing the focused campaign instead`
     );
     this.forceInventoryRefresh = true;
   }
@@ -659,7 +670,7 @@ export class MinerWorker {
         onDrops: (msg) => this.handleDropEvent(msg),
         onNotifications: () => {
           this.forceInventoryRefresh = true;
-          this.addLog("info", "Twitch notification — scheduling inventory refresh");
+          this.addLog("info", "Twitch notification, scheduling inventory refresh");
         },
       })
     );
@@ -860,7 +871,7 @@ export class MinerWorker {
     if (this.reward?.preempt) {
       // A pinned reward owns the watch slot; only an explicit switch overrides it.
       if (!userInitiated) return;
-      this.addLog("info", `Unpinned "${this.reward.entry.rewardName}" — switching to ${login}`);
+      this.addLog("info", `Unpinned "${this.reward.entry.rewardName}", switching to ${login}`);
       this.settings.pinnedRewardId = null;
       this.onSettingsPersist({ pinnedRewardId: null });
       this.stopReward();
@@ -892,7 +903,7 @@ export class MinerWorker {
       const needGame = focused.map((c) => c.gameName).filter(Boolean);
       const gameOk = channelMatchesCampaigns(ch, focused);
       if (!gameOk && needGame.length > 0) {
-        const msg = `${login} streams "${info.gameName || "unknown"}" — drops need ${needGame.join(" or ")}`;
+        const msg = `${login} streams "${info.gameName || "unknown"}", drops need ${needGame.join(" or ")}`;
         if (!userInitiated) {
           this.addLog("warn", msg);
           this.watching = null;
@@ -914,7 +925,7 @@ export class MinerWorker {
         if (check === "confirmed") ch.dropsEnabled = true;
         if (check === "none") {
           ch.dropsEnabled = false;
-          this.addLog("warn", `${login} has no drop campaigns active — skipping`);
+          this.addLog("warn", `${login} has no drop campaigns active, skipping`);
           this.watching = null;
           this.broadcastId = null;
           this.emit();
@@ -927,7 +938,7 @@ export class MinerWorker {
         this.setWatchingState(login);
         this.subscribeChannel(ch);
         if (this.reward) {
-          this.stopReward(`Game drops available on ${login} — pausing "${this.reward.entry.rewardName}"`);
+          this.stopReward(`Game drops available on ${login}, pausing "${this.reward.entry.rewardName}"`);
         }
 
 
@@ -950,7 +961,7 @@ export class MinerWorker {
         this.broadcastId = null;
         this.enterIdleState();
         if (userInitiated) {
-          this.addLog("warn", `${login} is offline — will watch when live`);
+          this.addLog("warn", `${login} is offline, will watch when live`);
         }
       }
       this.ensureWatchingInChannelList();
@@ -1140,7 +1151,7 @@ export class MinerWorker {
       }
 
       if (this.miningCampaigns.length > prevMiningCount && !this.watching) {
-        await this.resumeMiningIfEligible("New earnable campaigns detected — starting mining");
+        await this.resumeMiningIfEligible("New earnable campaigns detected, starting mining");
       }
 
       await this.rebuildChannelsFromMining();
@@ -1201,19 +1212,19 @@ export class MinerWorker {
 
   private resolveIdleMessage(): string {
     if (this.settings.priorityMode === "PRIORITY_ONLY" && this.settings.priorityGames.length === 0) {
-      return "Idle — add games to your priority list to start mining";
+      return "Idle: add games to your priority list to start mining";
     }
     const anyEarnable = this.allCampaigns.some((c) => campaignHasEarnableDrops(c));
     if (!anyEarnable && this.allCampaigns.length > 0) {
-      return "Idle — all campaigns complete, waiting for new drops";
+      return "Idle: all campaigns complete, waiting for new drops";
     }
     if (this.miningCampaigns.length === 0 && this.allCampaigns.length > 0) {
-      return "Idle — no earnable priority campaigns, waiting for new drops";
+      return "Idle: no earnable priority campaigns, waiting for new drops";
     }
     if (this.miningCampaigns.length > 0) {
-      return "Idle — waiting for live channels with drops";
+      return "Idle: waiting for live channels with drops";
     }
-    return "Idle — waiting for active campaigns";
+    return "Idle: waiting for active campaigns";
   }
 
   private enterIdleState(clearSession = false) {
@@ -1245,7 +1256,7 @@ export class MinerWorker {
 
       if (this.settings.activeCampaignId === campaign.id) {
         this.clearPinnedCampaign();
-        this.addLog("info", "Pinned campaign complete — resuming priority selection");
+        this.addLog("info", "Pinned campaign complete, resuming priority selection");
       }
 
       if (this.miningCampaigns.length === 0) {
@@ -1288,7 +1299,7 @@ export class MinerWorker {
       this.getFocusedCampaigns().length > 0 &&
       !channelMatchesCampaigns(this.watching, this.getFocusedCampaigns())
     ) {
-      this.addLog("info", "Current channel has no more earnable drops — switching");
+      this.addLog("info", "Current channel has no more earnable drops, switching");
       this.watching = null;
       this.broadcastId = null;
       await this.maintainWatching();
@@ -1345,14 +1356,14 @@ export class MinerWorker {
     if (!this.watching) return;
     if (this.watchingAllowedByDropLists()) return;
     const label = this.watching.gameName || this.watching.login;
-    this.clearWatchSession(`Stopped watching ${label} — no longer allowed by drop lists`);
+    this.clearWatchSession(`Stopped watching ${label}, no longer allowed by drop lists`);
   }
 
   private async maintainWatching() {
     if (this.switching) return;
     if (this.reward?.preempt) {
       if (this.watching) {
-        this.clearWatchSession(`Pinned "${this.reward.entry.rewardName}" — pausing game drops`);
+        this.clearWatchSession(`Pinned "${this.reward.entry.rewardName}", pausing game drops`);
       }
       return;
     }
@@ -1362,7 +1373,7 @@ export class MinerWorker {
 
     if (this.miningCampaigns.length === 0) {
       if (this.watching) {
-        this.clearWatchSession("No eligible campaigns — stopping watch");
+        this.clearWatchSession("No eligible campaigns, stopping watch");
       }
       this.enterIdleState(true);
       return;
@@ -1413,16 +1424,16 @@ export class MinerWorker {
         const need = focusedCampaigns.map((c) => c.gameName).filter(Boolean).join(" or ");
         this.addLog(
           "warn",
-          `${this.watching.login} streams "${this.watching.gameName || "unknown"}" — need ${need}`
+          `${this.watching.login} streams "${this.watching.gameName || "unknown"}", need ${need}`
         );
         this.broadcastId = null;
         this.watching = null;
       } else if (focusedCampaigns.length > 0 && inList?.dropsEnabled === false) {
-        this.addLog("warn", `${this.watching.login} has no drop campaigns active — searching for another channel`);
+        this.addLog("warn", `${this.watching.login} has no drop campaigns active, searching for another channel`);
         this.broadcastId = null;
         this.watching = null;
       } else if (focusedCampaigns.length === 0) {
-        this.clearWatchSession("No focused campaign — stopping watch");
+        this.clearWatchSession("No focused campaign, stopping watch");
       } else {
         this.setWatchingState(this.watching.login);
         this.emit();
@@ -1515,7 +1526,7 @@ export class MinerWorker {
       const failures = (this.claimFailures.get(dropId) ?? 0) + 1;
       this.claimFailures.set(dropId, failures);
       if (failures >= 3) {
-        this.addLog("warn", `Could not claim drop: ${drop.name} (${campaign.gameName}) — skipping`);
+        this.addLog("warn", `Could not claim drop: ${drop.name} (${campaign.gameName}), skipping`);
         this.claimFailures.delete(dropId);
         drop.isComplete = true;
         this.currentDrop = null;
@@ -1792,7 +1803,7 @@ export class MinerWorker {
 
     if (this.miningCampaigns.length === 0) {
       if (this.watching) {
-        this.clearWatchSession("No eligible campaigns — stopping watch");
+        this.clearWatchSession("No eligible campaigns, stopping watch");
       }
       this.enterIdleState(true);
       this.emit();
@@ -1800,7 +1811,7 @@ export class MinerWorker {
     }
 
     if (this.watching && !this.watchingAllowedByDropLists()) {
-      this.clearWatchSession("Drop lists changed — switching to next campaign");
+      this.clearWatchSession("Drop lists changed, switching to next campaign");
       await this.maintainWatching();
       return;
     }
@@ -1884,14 +1895,14 @@ export class MinerWorker {
           // Trigger inventory refresh to get fresh claim status from Twitch.
           if (this.consecutiveStallTicks >= 3 && !this.forceInventoryRefresh) {
             this.forceInventoryRefresh = true;
-            this.addLog("info", "No active drop session — refreshing inventory to check claim status");
+            this.addLog("info", "No active drop session, refreshing inventory to check claim status");
             this.emit();
             return;
           }
           if (this.consecutiveStallTicks === 1 || this.consecutiveStallTicks % 5 === 0) {
             const focused = this.getFocusedCampaigns();
             const gameHint = focused.length > 0 && this.watching && !channelMatchesCampaigns(this.watching, focused)
-              ? ` — channel streams ${this.watching.gameName || "unknown"}`
+              ? ` (channel streams ${this.watching.gameName || "unknown"})`
               : "";
             this.addLog(
               "warn",
@@ -1954,9 +1965,9 @@ export class MinerWorker {
           const focused = this.getFocusedCampaigns();
           const gameHint =
             focused.length > 0 && this.watching && !channelMatchesCampaigns(this.watching, focused)
-              ? ` — wrong game (streaming ${this.watching.gameName || "?"})`
+              ? ` (wrong game, streaming ${this.watching.gameName || "?"})`
               : this.watching?.dropsEnabled === false
-                ? " — channel has no drops tag"
+                ? " (channel has no drops tag)"
                 : "";
           this.addLog(
             "warn",
@@ -1968,7 +1979,7 @@ export class MinerWorker {
         // If none found, go idle and wait for channel refresh to find one.
         if (this.consecutiveStallTicks >= 5) {
           const currentLogin = this.watching?.login;
-          this.addLog("warn", `No drop progress on ${currentLogin ?? "channel"} — searching for another`);
+          this.addLog("warn", `No drop progress on ${currentLogin ?? "channel"}, searching for another`);
           await this.refreshChannelsQuietly();
           const best = pickBestChannel(
             this.getDisplayChannels().filter((c) => !sameLogin(c.login, currentLogin)),
@@ -1983,7 +1994,7 @@ export class MinerWorker {
             return;
           }
           this.consecutiveStallTicks = 0;
-          this.clearWatchSession(`No channel with drops found — waiting for eligible channel`);
+          this.clearWatchSession(`No channel with drops found, waiting for eligible channel`);
           this.forceInventoryRefresh = true;
         }
       }
@@ -1994,7 +2005,7 @@ export class MinerWorker {
       if (err instanceof Error && err.message === "UNAUTHORIZED") {
         this.message = "Twitch session expired";
         this.state = "ERROR";
-        this.addLog("error", "Twitch session expired — re-link required");
+        this.addLog("error", "Twitch session expired, re-link required");
         this.emit();
         return;
       }
@@ -2069,7 +2080,7 @@ export class MinerWorker {
 
     const pinned = queue.find((e) => e.id === this.settings.pinnedRewardId);
     if (pinned && this.reward?.entry.id !== pinned.id) {
-      this.addLog("info", `Pinned "${pinned.rewardName}" — mining it before game drops`);
+      this.addLog("info", `Pinned "${pinned.rewardName}", mining it before game drops`);
     }
 
     await this.maintainWatching();
@@ -2200,7 +2211,7 @@ export class MinerWorker {
         const found = await findCategoryChannel(entry.categoryIds);
         if (!found) {
           this.coolDownReward(entry, 10 * 60 * 1000);
-          this.addLog("info", `No live channel in ${entry.categoryNames.join(" / ")} for "${entry.rewardName}" — retrying in 10 min`);
+          this.addLog("info", `No live channel in ${entry.categoryNames.join(" / ")} for "${entry.rewardName}", retrying in 10 min`);
           return false;
         }
         channelId = found.id;
@@ -2218,14 +2229,14 @@ export class MinerWorker {
         this.coolDownReward(entry, entry.kind === "channel" ? REWARD_COOLDOWN_MS : 5 * 60 * 1000);
         this.addLog(
           "warn",
-          `${login} streams "${info.gameName || "unknown"}" — "${entry.rewardName}" needs ${entry.categoryNames.join(" or ")}`
+          `${login} streams "${info.gameName || "unknown"}", "${entry.rewardName}" needs ${entry.categoryNames.join(" or ")}`
         );
         return false;
       }
 
       if (this.reward) this.stopReward();
       if (this.watching) {
-        this.clearWatchSession(`Pinned "${entry.rewardName}" — pausing game drops`);
+        this.clearWatchSession(`Pinned "${entry.rewardName}", pausing game drops`);
       }
 
       const progress = this.rewardProgress.get(entry.id);
@@ -2245,7 +2256,7 @@ export class MinerWorker {
       this.lastWatchAt = new Date().toISOString();
       this.addLog(
         "success",
-        `Now watching ${login} for "${entry.rewardName}" (${progress?.currentMinutes ?? 0}/${entry.requiredMinutes} min)${preempt ? " — pinned" : ""}`
+        `Now watching ${login} for "${entry.rewardName}" (${progress?.currentMinutes ?? 0}/${entry.requiredMinutes} min)${preempt ? " (pinned)" : ""}`
       );
       this.emit();
       void this.performWatch();
@@ -2279,7 +2290,7 @@ export class MinerWorker {
       if (!info.online || !info.broadcastId) {
         if (entry.kind === "channel") rewardDirectory.setLive(entry.channelId, false);
         // Category rewards pick another channel on the next round.
-        this.stopReward(`${login} went offline — pausing "${entry.rewardName}"`);
+        this.stopReward(`${login} went offline, pausing "${entry.rewardName}"`);
         return;
       }
       r.broadcastId = info.broadcastId;
@@ -2288,7 +2299,7 @@ export class MinerWorker {
       if (!this.rewardCategoryOk(entry, info.gameId)) {
         if (entry.kind === "channel") this.coolDownReward(entry, REWARD_COOLDOWN_MS);
         this.stopReward(
-          `${login} switched to "${info.gameName || "unknown"}" — "${entry.rewardName}" needs ${entry.categoryNames.join(" or ")}`
+          `${login} switched to "${info.gameName || "unknown"}", "${entry.rewardName}" needs ${entry.categoryNames.join(" or ")}`
         );
         return;
       }
@@ -2302,7 +2313,7 @@ export class MinerWorker {
         r.preferredCheckAt = Date.now();
         if (await this.checkPreferredChannel(entry, true)) {
           if (this.reward !== r) return;
-          this.stopReward(`${entry.preferredChannel} is back — switching "${entry.rewardName}" to it`);
+          this.stopReward(`${entry.preferredChannel} is back, switching "${entry.rewardName}" to it`);
           await this.maintainReward();
           return;
         }
@@ -2325,6 +2336,7 @@ export class MinerWorker {
       await this.progressAlongside(entry);
       if (this.reward !== r) return;
       const p = this.rewardProgress.get(entry.id);
+      this.noteLockProbe(entry, p);
 
       if (p?.status === "CLAIMABLE") {
         await this.claimQueuedReward(entry);
@@ -2349,7 +2361,7 @@ export class MinerWorker {
         }
         if (r.stallTicks >= REWARD_STALL_TICKS) {
           this.coolDownReward(entry, REWARD_COOLDOWN_MS);
-          this.stopReward(`No progress for "${entry.rewardName}" on ${login} for ~15 min — skipping it for 30 min`);
+          this.stopReward(`No progress for "${entry.rewardName}" on ${login} for ~15 min, skipping it for 30 min`);
           return;
         }
       }
@@ -2361,12 +2373,50 @@ export class MinerWorker {
         this.stopReward();
         this.state = "ERROR";
         this.message = "Twitch session expired";
-        this.addLog("error", "Twitch session expired — re-link required");
+        this.addLog("error", "Twitch session expired, re-link required");
         this.emit();
         return;
       }
       this.addLog("warn", `Reward watch failed: ${err instanceof Error ? err.message : "unknown error"}`);
     }
+  }
+
+  /** Progress for one reward: queue data first, then the last full sync. */
+  private progressFor(id: string): RewardProgress | undefined {
+    const queued = this.rewardProgress.get(id);
+    if (queued) return queued;
+    const [campaignId, groupId] = id.split(":");
+    return this.directoryProgress.get(campaignId)?.get(groupId);
+  }
+
+  /** Where the user stands on a reward — drives the list and the queue check. */
+  rewardSelf(entry: RewardQueueEntry): RewardSelf | null {
+    const p = this.progressFor(entry.id);
+    if (!p) return null;
+    const now = Date.now();
+    let availability: RewardAvailability;
+    const done = entry.repeatTimes ? p.grantCount >= entry.repeatTimes : p.status === "CLAIMED" || p.grantCount > 0;
+    const wait = p.status === "CLAIMABLE" ? 0 : this.roundWaitUntil(entry, p, now);
+    if (done) availability = "earned";
+    else if (p.status === "CLAIMABLE") availability = "claimable";
+    else if (this.rewardLocked(entry, p)) availability = "locked";
+    else if (wait > now) availability = "roundDone";
+    else if (p.currentMinutes > 0 || p.grantCount > 0) availability = "progress";
+    else availability = "available";
+    return {
+      availability,
+      currentMinutes: Math.max(0, p.currentMinutes),
+      requiredMinutes: p.requiredMinutes || entry.requiredMinutes,
+      grantCount: p.grantCount,
+      resumeAt: wait > now && Number.isFinite(wait) ? new Date(wait).toISOString() : null,
+      status: p.status,
+    };
+  }
+
+  /** Load progress for all known campaigns if the last load is older than maxAgeMs. */
+  async ensureRewardStatuses(maxAgeMs: number) {
+    if (Date.now() - this.directoryProgressAt <= maxAgeMs) return;
+    await this.syncRewardHistory(true);
   }
 
   /** Channel being watched right now, for a reward or for game drops. */
@@ -2423,6 +2473,7 @@ export class MinerWorker {
     for (const e of riders) {
       const p = this.rewardProgress.get(e.id);
       if (!p) continue;
+      this.noteLockProbe(e, p);
       if (p.status === "CLAIMABLE") {
         await this.claimQueuedReward(e);
         continue;
@@ -2460,7 +2511,7 @@ export class MinerWorker {
       try {
         const info = await fetchStreamInfo(this.auth, c.channelLogin);
         if (info.online && info.broadcastId && this.rewardCategoryOk(entry, info.gameId)) {
-          this.addLog("info", `${c.channelLogin} streams ${info.gameName} — mining "${entry.rewardName}" there together with "${c.rewardName}"`);
+          this.addLog("info", `${c.channelLogin} streams ${info.gameName}, mining "${entry.rewardName}" there together with "${c.rewardName}"`);
           return { channelId: info.channelId ?? c.channelId, login: c.channelLogin };
         }
       } catch {
@@ -2487,7 +2538,9 @@ export class MinerWorker {
         this.rewardRoundLogged.set(entry.id, -1);
         this.addLog(
           "info",
-          `"${entry.rewardName}" has all minutes but Twitch has not unlocked it yet (status ${p.status}; it likely needs other rewards first) — not mining it`
+          entry.repeatTimes
+            ? `"${entry.rewardName}" did not restart after ${LOCK_PROBE_MS / 60000} min of watching (status ${p.status}). Locked, it likely needs other rewards first.`
+            : `"${entry.rewardName}" has all minutes but Twitch has not unlocked it yet (status ${p.status}; it likely needs other rewards first). Not mining it.`
         );
       }
       if (this.reward?.entry.id === entry.id) this.stopReward();
@@ -2500,7 +2553,7 @@ export class MinerWorker {
       const when = next === Infinity ? "when Twitch opens the next round" : `from ${new Date(next).toLocaleString()}`;
       this.addLog(
         "info",
-        `"${entry.rewardName}" earned ${p.grantCount}${entry.repeatTimes ? `/${entry.repeatTimes}` : ""} — this round is done, next one ${when}`
+        `"${entry.rewardName}" earned ${p.grantCount}${entry.repeatTimes ? `/${entry.repeatTimes}` : ""}. This round is done, next one ${when}.`
       );
     }
     if (this.reward?.entry.id === entry.id) this.stopReward();
@@ -2543,9 +2596,55 @@ export class MinerWorker {
    * a progress refresh claims it once Twitch makes it claimable.
    */
   private rewardLocked(entry: RewardQueueEntry, p: RewardProgress | undefined): boolean {
+    if (!this.lockCandidate(entry, p)) return false;
+    // Twitch says it only progresses after another reward, or it is a
+    // one-time reward with all minutes: gated by something else.
+    if (entry.autoProgress === false || !entry.repeatTimes) return true;
+    // Repeatables usually show an expired round's minutes and restart once
+    // watched — only locked after watching changed nothing (see noteLockProbe).
+    return this.lockConfirmed.get(entry.id) === p!.currentMinutes;
+  }
+
+  /** All minutes reported, yet neither claimable nor earned this round. */
+  private lockCandidate(entry: RewardQueueEntry, p: RewardProgress | undefined): boolean {
     if (!p || p.status === "CLAIMABLE" || p.status === "CLAIMED") return false;
     if (!(p.requiredMinutes > 0 && p.currentMinutes >= p.requiredMinutes)) return false;
     return !(entry.repeatTimes && p.grantCount > 0);
+  }
+
+  /**
+   * Called while a matching channel is watched for this reward. A repeatable
+   * stuck at full minutes (stale round) normally resets and counts up again;
+   * if the number has not moved after LOCK_PROBE_MS of watching, it is
+   * really locked (e.g. an evolution that needs the previous stage).
+   */
+  private noteLockProbe(entry: RewardQueueEntry, p: RewardProgress | undefined) {
+    if (!p || !entry.repeatTimes || !this.lockCandidate(entry, p)) {
+      this.lockProbe.delete(entry.id);
+      if (p && this.lockConfirmed.has(entry.id) && this.lockConfirmed.get(entry.id) !== p.currentMinutes) {
+        this.lockConfirmed.delete(entry.id);
+      }
+      return;
+    }
+    if (this.lockConfirmed.get(entry.id) === p.currentMinutes) return;
+    const now = Date.now();
+    const probe = this.lockProbe.get(entry.id);
+    if (!probe || probe.minutes !== p.currentMinutes) {
+      if (!probe) {
+        this.addLog(
+          "info",
+          `"${entry.rewardName}" still shows ${p.currentMinutes}/${p.requiredMinutes} min from an earlier round, watching to start a new one`
+        );
+      }
+      this.lockProbe.set(entry.id, { minutes: p.currentMinutes, since: now });
+      return;
+    }
+    if (now - probe.since >= LOCK_PROBE_MS) {
+      this.lockProbe.delete(entry.id);
+      this.lockConfirmed.set(entry.id, p.currentMinutes);
+      this.rewardRoundLogged.delete(entry.id);
+      this.settleReward(entry);
+    }
   }
 
   /** Earliest time a queued reward may be mined again (0 = now). */
@@ -2630,7 +2729,7 @@ export class MinerWorker {
           after.status !== "CLAIMABLE" &&
           (after.status === "CLAIMED" || after.grantCount > before));
       if (!claimed) {
-        this.addLog("warn", `Reward claim not confirmed (${status || "no status"}) — retrying in 5 min`);
+        this.addLog("warn", `Reward claim not confirmed (${status || "no status"}), retrying in 5 min`);
         return;
       }
       this.addLog("success", `Claimed reward: ${entry.rewardName} (${label})`);
@@ -2665,14 +2764,14 @@ export class MinerWorker {
     try {
       const info = await fetchStreamInfo(this.auth, login);
       if (!info.online || !info.broadcastId) {
-        if (!quiet) this.addLog("info", `${login} is offline — using another channel for "${entry.rewardName}"`);
+        if (!quiet) this.addLog("info", `${login} is offline, using another channel for "${entry.rewardName}"`);
         return null;
       }
       if (!this.rewardCategoryOk(entry, info.gameId)) {
         if (!quiet) {
           this.addLog(
             "info",
-            `${login} streams "${info.gameName || "unknown"}" — using another channel for "${entry.rewardName}"`
+            `${login} streams "${info.gameName || "unknown"}", using another channel for "${entry.rewardName}"`
           );
         }
         return null;
@@ -2703,12 +2802,19 @@ export class MinerWorker {
         ...this.settings.rewardQueue.map((e) => e.campaignId),
       ]);
       const progress = await fetchCampaignsProgress(this.auth, [...ids]);
+      this.directoryProgress = progress;
+      this.directoryProgressAt = Date.now();
       let added = 0;
       for (const [campaignId, groups] of progress) {
         for (const [groupId, p] of groups) {
-          const earned = Math.max(p.grantCount, p.status === "CLAIMED" ? 1 : 0);
-          if (earned <= 0) continue;
           const rewardId = `${campaignId}:${groupId}`;
+          const known =
+            rewardDirectory.entry(rewardId) ?? this.settings.rewardQueue.find((e) => e.id === rewardId);
+          // "All repeats needed" rewards pay out once, after the last repeat.
+          const earned = known?.completeAllRepeats
+            ? p.grantCount >= (known.repeatTimes ?? Infinity) ? 1 : 0
+            : Math.max(p.grantCount, p.status === "CLAIMED" ? 1 : 0);
+          if (earned <= 0) continue;
           const have = this.settings.rewardHistory.filter((h) => h.rewardId === rewardId).length;
           if (have >= earned) continue;
           const entry =
@@ -2737,6 +2843,8 @@ export class MinerWorker {
     grantNumber: number,
     source: "dropforge" | "twitch" = "dropforge"
   ) {
+    if (entry.completeAllRepeats && entry.repeatTimes && grantNumber < entry.repeatTimes) return;
+    if (entry.completeAllRepeats) grantNumber = 1;
     const pool = entry.poolItems ?? [];
     // Chests hand out their pool in order (Twitch's own claim callout reads
     // pool[grantCount - 1]); fall back to the chest itself.
@@ -2769,7 +2877,7 @@ export class MinerWorker {
     this.rewardProgress.delete(entry.id);
     this.rewardCooldownUntil.delete(entry.id);
     this.rewardClaimAttemptAt.delete(entry.id);
-    if (note) this.addLog("info", `"${entry.rewardName}" ${note} — removed from queue`);
+    if (note) this.addLog("info", `"${entry.rewardName}" ${note}, removed from queue`);
     // Earned outside our own claim (auto-granted, claimed elsewhere): pick it up.
     if (note === "already earned") void this.syncRewardHistory(true).catch(() => undefined);
     if (this.reward?.entry.id === entry.id) this.stopReward();

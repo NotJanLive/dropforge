@@ -77,7 +77,7 @@ export function StatePill({
       )}
     >
       <StatusDot tone={tone} />
-      {state || "—"}
+      {state || "-"}
     </span>
   );
 }

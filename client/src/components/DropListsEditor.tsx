@@ -200,8 +200,8 @@ export function DropListsEditor({
         {priorityGames.length === 0 && (
           <p className="rounded-xl border border-dashed border-white/[0.08] px-3 py-4 text-center text-xs leading-relaxed text-muted-foreground">
             {priorityMode === "PRIORITY_ONLY"
-              ? "Empty — miner stays idle until you add games."
-              : "Empty — miner uses all non-ignored games."}
+              ? "Empty: miner stays idle until you add games."
+              : "Empty: miner uses all non-ignored games."}
           </p>
         )}
 

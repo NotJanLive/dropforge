@@ -1,4 +1,4 @@
-import { GQL_URL, getClientType, type RewardQueueEntry } from "./constants.js";
+import { GQL_URL, getClientType, type RewardQueueEntry, type RewardSelf } from "./constants.js";
 import { GqlClient } from "./gql.js";
 import type { TwitchAuthSession } from "../twitch/auth.js";
 
@@ -63,6 +63,14 @@ export interface RewardGroupInfo {
   rewards: RewardItem[];
   /** Watch-time requirement — can be mined. */
   mineable: boolean;
+  /** false = only progresses after another reward is earned (Twitch's isAutoProgressable). */
+  autoProgress: boolean;
+  /** Repeatable that pays out only after all repeats. */
+  completeAllRepeats: boolean;
+  /** Other rewards of the same lane (e.g. an evolution line), in Twitch's order. */
+  laneSiblings: string[];
+  /** The user's standing — filled in per request, absent without a miner. */
+  self?: RewardSelf;
 }
 
 export interface RewardCampaign {
@@ -135,12 +143,13 @@ const CAMPAIGN_FIELDS = `
   id name brandName status startAt endAt imageURL detailsURL
   game { id }
   rewardGroups {
-    id name
+    id name track lane
     progressCriteria {
       requirementType
       requirements { minutesWatched subs }
       isRepeatable
-      repeatableConfig { repeatableTimes resetIntervalSeconds }
+      isAutoProgressable
+      repeatableConfig { repeatableTimes resetIntervalSeconds shouldCompleteAllRepeatsToEarn }
       categories { id displayName }
     }
     rewards {
@@ -246,7 +255,20 @@ function parseCampaign(c: Json, kind: RewardKind): RewardCampaign {
       resetSeconds: pc.isRepeatable ? Number(repeat.resetIntervalSeconds ?? 0) || null : null,
       rewards: asArray(g.rewards).map(parseReward),
       mineable: requirementType === "WATCH" && minutes > 0,
+      autoProgress: pc.isAutoProgressable !== false,
+      completeAllRepeats: Boolean(pc.isRepeatable && repeat.shouldCompleteAllRepeatsToEarn),
+      laneSiblings: [],
     };
+  });
+  const lanes = new Map<string, string[]>();
+  asArray(c.rewardGroups).forEach((g, i) => {
+    if (!g.lane) return;
+    const list = lanes.get(String(g.lane)) ?? [];
+    list.push(groups[i].name);
+    lanes.set(String(g.lane), list);
+  });
+  asArray(c.rewardGroups).forEach((g, i) => {
+    if (g.lane) groups[i].laneSiblings = (lanes.get(String(g.lane)) ?? []).filter((n) => n !== groups[i].name);
   });
   return {
     id: String(c.id),
@@ -400,6 +422,8 @@ class RewardDirectory {
       categoryNames: cats.names,
       endsAt: c.endsAt,
       repeatTimes: g.repeatTimes,
+      autoProgress: g.autoProgress,
+      completeAllRepeats: g.completeAllRepeats,
       poolItems: g.rewards.flatMap((r) => r.pool.map((p) => ({ name: p.name, imageUrl: p.imageUrl }))),
       preferredChannel: null,
     };

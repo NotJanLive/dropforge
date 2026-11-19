@@ -113,13 +113,13 @@ export function UserSetupPage() {
     ? ([
         ["Link Twitch", "Authorize Dropforge by logging in on twitch.tv."],
         ["Loading games", "Fetching active drop campaigns from your Twitch account."],
-        ["Priority games", "Optional — pick games to mine first. You can change this later under Drop lists."],
+        ["Priority games", "Optional: pick games to mine first. You can change this later under Drop lists."],
       ] as const)
     : ([
         ["Set your password", "Replace the temporary password from your admin."],
         ["Link Twitch", "Authorize Dropforge by logging in on twitch.tv."],
         ["Loading games", "Fetching active drop campaigns from your Twitch account."],
-        ["Priority games", "Optional — pick games to mine first. You can change this later under Drop lists."],
+        ["Priority games", "Optional: pick games to mine first. You can change this later under Drop lists."],
       ] as const);
 
   const title = titles[wizardStep] ?? titles[0];
@@ -176,7 +176,7 @@ export function UserSetupPage() {
           <p className="text-sm leading-relaxed text-muted-foreground">
             {availableGames.length} game{availableGames.length === 1 ? "" : "s"} with drop campaigns
             {priorityGames.length === 0
-              ? " — optional, add any below or finish without."
+              ? ", optional, add any below or finish without."
               : ` · ${priorityGames.length} selected.`}
           </p>
 

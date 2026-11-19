@@ -194,12 +194,12 @@ function AdminUserMinerCard({
         </p>
 
         <div className="grid grid-cols-3 gap-2">
-          <MiniStat label="Watching" value={miner.status.watchingChannel ?? "—"} />
+          <MiniStat label="Watching" value={miner.status.watchingChannel ?? "-"} />
           <MiniStat
             label="Campaign"
-            value={mining?.campaignName ?? miner.status.focusedCampaignName ?? "—"}
+            value={mining?.campaignName ?? miner.status.focusedCampaignName ?? "-"}
           />
-          <MiniStat label="Drop" value={mining?.dropName ?? "—"} />
+          <MiniStat label="Drop" value={mining?.dropName ?? "-"} />
         </div>
 
         {mining && !expanded && (
@@ -373,7 +373,7 @@ function AdminUserMinerCard({
                   <dd className="tabular-nums text-foreground">
                     {miner.status.lastWatchAt
                       ? new Date(miner.status.lastWatchAt).toLocaleTimeString()
-                      : "—"}
+                      : "-"}
                   </dd>
                 </div>
                 <div className="flex justify-between gap-2">

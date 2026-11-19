@@ -11,8 +11,8 @@ import {
   unlinkTwitch,
 } from "../twitch/session.js";
 import { minerManager, parseJsonArray, createUnlinkedMinerStatus, loadMinerLogs } from "../miner/manager.js";
-import type { RewardQueueEntry, CampaignInfo } from "../miner/constants.js";
-import { listCategoryChannels, rewardDirectory } from "../miner/rewards.js";
+import type { RewardQueueEntry, CampaignInfo, RewardSelf } from "../miner/constants.js";
+import { listCategoryChannels, rewardDirectory, type RewardCampaign } from "../miner/rewards.js";
 
 const router = Router();
 
@@ -206,8 +206,39 @@ router.post("/miner/switch", requireUser, async (req, res) => {
   res.json({ ok: true, status: minerManager.getStatus(user.id) });
 });
 
-router.get("/rewards", requireUser, (_req, res) => {
-  res.json({ campaigns: rewardDirectory.list(), scan: rewardDirectory.info() });
+/** Attach the user's standing on every mineable reward (if their miner runs). */
+async function withRewardSelf(userId: number, campaigns: RewardCampaign[]): Promise<RewardCampaign[]> {
+  const worker = minerManager.getWorker(userId);
+  if (!worker) return campaigns;
+  // Fresh enough for the list; never hold the page up for long.
+  await Promise.race([
+    worker.ensureRewardStatuses(2 * 60 * 1000).catch(() => undefined),
+    new Promise((r) => setTimeout(r, 8000)),
+  ]);
+  for (const c of campaigns) {
+    for (const g of c.groups) {
+      if (!g.mineable) continue;
+      const entry = rewardDirectory.entry(g.id);
+      const self = entry ? worker.rewardSelf(entry) : null;
+      if (self) g.self = self;
+    }
+  }
+  return campaigns;
+}
+
+/** Why a reward can't be queued right now, or null if it can. */
+function queueBlockReason(self: RewardSelf | null): string | null {
+  if (self?.availability === "earned") return "already earned";
+  if (self?.availability === "locked") return "needs other rewards first";
+  return null;
+}
+
+router.get("/rewards", requireUser, async (req, res) => {
+  const user = (req as typeof req & { currentUser: { id: number } }).currentUser;
+  res.json({
+    campaigns: await withRewardSelf(user.id, rewardDirectory.list()),
+    scan: rewardDirectory.info(),
+  });
 });
 
 router.post("/rewards/lookup", requireUser, async (req, res) => {
@@ -218,7 +249,8 @@ router.post("/rewards/lookup", requireUser, async (req, res) => {
     return;
   }
   try {
-    res.json({ campaigns: await rewardDirectory.lookup(name) });
+    const user = (req as typeof req & { currentUser: { id: number } }).currentUser;
+    res.json({ campaigns: await withRewardSelf(user.id, await rewardDirectory.lookup(name)) });
   } catch (err) {
     res.status(400).json({ error: err instanceof Error ? err.message : "Lookup failed" });
   }
@@ -235,6 +267,8 @@ router.put("/miner/rewards", requireUser, async (req, res) => {
     minerManager.getRewardSettings(user.id).rewardQueue.map((e) => [e.id, e] as const)
   );
   const entries: RewardQueueEntry[] = [];
+  const worker = minerManager.getWorker(user.id);
+  const rejected: Array<{ id: string; name: string; reason: string }> = [];
   let skipped = 0;
   for (const raw of queue) {
     const id = String(raw);
@@ -242,12 +276,15 @@ router.put("/miner/rewards", requireUser, async (req, res) => {
     const fresh = known ? rewardDirectory.entry(id) : await rewardDirectory.resolveEntry(id);
     // Keep the user's channel pick when the snapshot is refreshed.
     const entry = fresh ? { ...fresh, preferredChannel: known?.preferredChannel ?? null } : known;
-    if (entry) entries.push(entry);
+    // Only newly added rewards are checked; queued ones are handled by the miner.
+    const reason = entry && !known && worker ? queueBlockReason(worker.rewardSelf(entry)) : null;
+    if (entry && reason) rejected.push({ id, name: entry.rewardName, reason });
+    else if (entry) entries.push(entry);
     else skipped++;
   }
   const pinned = typeof pinnedId === "string" && pinnedId ? pinnedId : null;
   await minerManager.updateRewardQueue(user.id, entries, pinned);
-  res.json({ ok: true, skipped, status: minerManager.getStatus(user.id) });
+  res.json({ ok: true, skipped, rejected, status: minerManager.getStatus(user.id) });
 });
 
 router.get("/rewards/channels", requireUser, async (req, res) => {

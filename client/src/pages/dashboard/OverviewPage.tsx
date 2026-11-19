@@ -137,7 +137,7 @@ export function OverviewPage() {
 
   const headline =
     twitchLinked === false
-      ? "Twitch account required — link your account to start mining."
+      ? "Twitch account required. Link your account to start mining."
       : live?.watchingChannel
         ? `Watching ${live.watchingChannel}${live.watchingGame ? ` · ${live.watchingGame}` : ""}`
         : live?.message ?? (twitchLinked ? "Starting miner…" : "Checking Twitch link…");
@@ -188,7 +188,7 @@ export function OverviewPage() {
           description={headline}
           actions={
             <>
-              <StatePill state={live?.state ?? "—"} size="md" className="max-sm:order-2" />
+              <StatePill state={live?.state ?? "-"} size="md" className="max-sm:order-2" />
               <Button
                 variant="outline"
                 size="sm"
@@ -211,7 +211,7 @@ export function OverviewPage() {
             className="col-span-2 sm:col-span-1"
             icon={Activity}
             label="Status"
-            value={live?.state ?? "—"}
+            value={live?.state ?? "-"}
             hint={live?.message}
             tone={live?.state === "WATCHING" ? "success" : live?.state === "ERROR" ? "danger" : "brand"}
           />
@@ -225,7 +225,7 @@ export function OverviewPage() {
           <StatTile
             icon={Timer}
             label="Last watch tick"
-            value={live?.lastWatchAt ? new Date(live.lastWatchAt).toLocaleTimeString() : "—"}
+            value={live?.lastWatchAt ? new Date(live.lastWatchAt).toLocaleTimeString() : "-"}
             hint={`${channels.filter((c) => c.online).length} channels live`}
             tone="neutral"
           />
@@ -272,7 +272,7 @@ export function OverviewPage() {
                       <option value="__auto__">Automatic (priority)</option>
                       {(live?.miningCampaignOptions ?? []).map((c) => (
                         <option key={c.id} value={c.id}>
-                          {c.gameName} — {c.name}
+                          {c.gameName} · {c.name}
                         </option>
                       ))}
                     </Select>
@@ -488,7 +488,7 @@ function RewardMiningPanel({
   const source =
     reward.kind === "channel"
       ? `Creator badge · ${reward.channelDisplayName || reward.channelLogin}`
-      : `${reward.campaignName} · on ${reward.watchingChannel ?? "—"}`;
+      : `${reward.campaignName} · on ${reward.watchingChannel ?? "-"}`;
   return (
     <div className="space-y-3">
       <ProgressBlock
@@ -512,8 +512,8 @@ function RewardMiningPanel({
         <span className="flex items-center gap-1.5">
           {reward.pinned ? <Pin className="h-3.5 w-3.5 text-primary" /> : <Award className="h-3.5 w-3.5" />}
           {reward.pinned
-            ? "Pinned — game drops are paused until this reward is earned"
-            : "No game drop to mine right now — using the time for rewards"}
+            ? "Pinned: game drops are paused until this reward is earned"
+            : "No game drop to mine right now, using the time for rewards"}
           {queued > 0 && ` · ${queued} more queued`}
         </span>
         <Button size="xs" variant="ghost" onClick={onOpen}>
@@ -557,7 +557,7 @@ function ProgressBlock({
             {eyebrow}
           </p>
           <p className="truncate text-sm font-medium leading-snug tracking-tight" title={title}>
-            {title || "—"}
+            {title || "-"}
           </p>
           <p className="truncate text-2xs text-muted-foreground">{subtitle}</p>
         </div>
@@ -644,7 +644,7 @@ function ChannelsPanel({
                     {ch.displayName || ch.login}
                   </p>
                   <p className="truncate text-2xs text-muted-foreground">
-                    {ch.gameName || "—"}
+                    {ch.gameName || "-"}
                     {ch.online ? ` · ${ch.viewers.toLocaleString()} viewers` : " · Offline"}
                   </p>
                 </div>

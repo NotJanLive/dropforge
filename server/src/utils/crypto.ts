@@ -6,7 +6,7 @@ function getKey(): Buffer {
   const hex = process.env.ENCRYPTION_KEY?.trim();
   if (!hex || !/^[0-9a-fA-F]{64}$/.test(hex)) {
     throw new Error(
-      "ENCRYPTION_KEY must be a 64-character hex string (32 bytes). Set it in .env — see .env.example"
+      "ENCRYPTION_KEY must be a 64-character hex string (32 bytes). Set it in .env, see .env.example"
     );
   }
   return Buffer.from(hex, "hex");

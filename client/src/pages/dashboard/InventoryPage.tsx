@@ -272,7 +272,7 @@ export function InventoryPage() {
               ) : (
                 <>
                   {allCampaigns.length} campaigns loaded. Enable “Excluded” or “Upcoming”, or turn off
-                  “Not linked” if needed — the actively mined campaign is always shown.
+                  “Not linked” if needed. The actively mined campaign is always shown.
                 </>
               )
             }

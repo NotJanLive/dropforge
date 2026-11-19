@@ -177,7 +177,7 @@ function mergeSettings(before: MinerSettings, partial: Partial<MinerSettings>): 
 export function createUnlinkedMinerStatus(logs: MinerLogEntry[] = []): MinerStatus {
   return {
     state: "STOPPED",
-    message: "Twitch account not linked — link your account in Settings to start mining",
+    message: "Twitch account not linked. Link your account in Settings to start mining",
     watchingChannel: null,
     watchingGame: null,
     currentDrop: null,
@@ -403,6 +403,11 @@ export class MinerManager {
       // Picking a game campaign is an explicit choice — it beats a pinned reward.
       ...(campaignId ? { pinnedRewardId: null } : {}),
     });
+  }
+
+  /** The miner of a user, if running (for reward status lookups). */
+  getWorker(userId: number) {
+    return this.workers.get(userId) ?? null;
   }
 
   getRewardSettings(userId: number) {

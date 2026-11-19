@@ -163,6 +163,21 @@ export interface RewardGroupInfo {
   resetSeconds: number | null;
   rewards: RewardItem[];
   mineable: boolean;
+  autoProgress: boolean;
+  completeAllRepeats: boolean;
+  laneSiblings: string[];
+  self?: RewardSelf;
+}
+
+export type RewardAvailability = "available" | "progress" | "claimable" | "roundDone" | "locked" | "earned";
+
+export interface RewardSelf {
+  availability: RewardAvailability;
+  currentMinutes: number;
+  requiredMinutes: number;
+  grantCount: number;
+  resumeAt: string | null;
+  status: string;
 }
 
 /** Reward campaign (global, category based) or creator badge campaign (one channel). */
@@ -406,7 +421,12 @@ export const api = {
       body: JSON.stringify({ id, channel }),
     }),
   updateRewardQueue: (queue: string[], pinnedId: string | null) =>
-    request<{ ok: boolean; skipped: number; status: MinerStatus | null }>("/api/twitch/miner/rewards", {
+    request<{
+      ok: boolean;
+      skipped: number;
+      rejected: Array<{ id: string; name: string; reason: string }>;
+      status: MinerStatus | null;
+    }>("/api/twitch/miner/rewards", {
       method: "PUT",
       body: JSON.stringify({ queue, pinnedId }),
     }),

@@ -41,7 +41,7 @@ export function TwitchLinkPage() {
           <CardHeader className="pb-4">
             <CardTitle className="text-sm">Twitch login</CardTitle>
             <CardDescription className="text-xs">
-              Same flow as initial setup — log in on twitch.tv.
+              Same flow as initial setup: log in on twitch.tv.
             </CardDescription>
           </CardHeader>
           <CardContent>
