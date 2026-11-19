@@ -182,6 +182,8 @@ export class MinerWorker {
   private alongsideMinutes = new Map<string, number>();
   private lastAlongsideCheck = 0;
   private lastRewardHistorySync = 0;
+  /** Directory scan the queue snapshots were last refreshed from. */
+  private queueSnapshotScan: string | null = null;
   /** Progress on every known reward campaign, from the last history sync. */
   private directoryProgress = new Map<string, Map<string, RewardProgress>>();
   private directoryProgressAt = 0;
@@ -1022,6 +1024,7 @@ export class MinerWorker {
 
     await this.claimWatchCompletedDrops();
     await this.maintainWatching();
+    this.refreshQueueSnapshots();
     await this.refreshQueuedRewardProgress();
     await this.maintainReward();
     if (!this.reward && this.watching && this.broadcastId && Date.now() - this.lastAlongsideCheck >= 60_000) {
@@ -2109,7 +2112,8 @@ export class MinerWorker {
       return {
         ...e,
         requiredMinutes: p?.requiredMinutes || e.requiredMinutes,
-        currentMinutes: Math.max(0, p?.currentMinutes ?? 0),
+        // Twitch keeps counting past the target on some rewards (e.g. 1112/20).
+        currentMinutes: Math.min(Math.max(0, p?.currentMinutes ?? 0), p?.requiredMinutes || e.requiredMinutes),
         grantCount: p?.grantCount ?? 0,
         state,
         resumeAt: cooldown > now && Number.isFinite(cooldown) ? new Date(cooldown).toISOString() : null,
@@ -2405,7 +2409,7 @@ export class MinerWorker {
     else availability = "available";
     return {
       availability,
-      currentMinutes: Math.max(0, p.currentMinutes),
+      currentMinutes: Math.min(Math.max(0, p.currentMinutes), p.requiredMinutes || entry.requiredMinutes),
       requiredMinutes: p.requiredMinutes || entry.requiredMinutes,
       grantCount: p.grantCount,
       resumeAt: wait > now && Number.isFinite(wait) ? new Date(wait).toISOString() : null,
@@ -2417,6 +2421,33 @@ export class MinerWorker {
   async ensureRewardStatuses(maxAgeMs: number) {
     if (Date.now() - this.directoryProgressAt <= maxAgeMs) return;
     await this.syncRewardHistory(true);
+  }
+
+  /**
+   * Refresh the stored queue entries from the latest directory scan, so
+   * entries queued before a field existed (e.g. `autoProgress`) or with
+   * changed details pick up Twitch's current data. The user's channel pick
+   * is kept; entries the directory no longer knows stay as they are.
+   */
+  private refreshQueueSnapshots() {
+    const scan = rewardDirectory.info().lastScanAt;
+    if (!scan || scan === this.queueSnapshotScan) return;
+    this.queueSnapshotScan = scan;
+    let changed = false;
+    const queue = this.settings.rewardQueue.map((e) => {
+      const fresh = rewardDirectory.entry(e.id);
+      if (!fresh) return e;
+      const next = { ...fresh, preferredChannel: e.preferredChannel ?? null };
+      if (JSON.stringify(next) !== JSON.stringify(e)) changed = true;
+      return next;
+    });
+    if (!changed) return;
+    this.settings.rewardQueue = queue;
+    this.onSettingsPersist({ rewardQueue: queue });
+    if (this.reward) {
+      const current = queue.find((e) => e.id === this.reward!.entry.id);
+      if (current) this.reward.entry = current;
+    }
   }
 
   /** Channel being watched right now, for a reward or for game drops. */
